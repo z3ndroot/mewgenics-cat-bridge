@@ -20,7 +20,9 @@ from game_data import EFFECT_NOTES, ROOM_CAT_COMFORT_FREE, furniture_effects
 # How much each effect matters for a room's job. Positive = want more.
 GOALS = {
     "breeding": {
-        "Stimulation": 3, "Comfort": 2, "InheritStatFavorBest": 6, "InheritPieceFavorMutation": 2,
+        # Comfort raises the mating chance (game code: x sqrt(1 + 0.1 Comfort));
+        # Stimulation had no measurable effect on stat inheritance.
+        "Stimulation": 1, "Comfort": 3, "InheritStatFavorBest": 6, "InheritPieceFavorMutation": 2,
         "InheritAbilityChance": 2, "InheritSecondAbilityChance": 1, "InheritPassiveChance": 2,
         "IncreaseRoomBreedChance": 3, "IncreasePartnerBreedChance": 2, "IncreaseFertility": 3,
         "Health": 0.5, "DecreaseRoomFightChance": 1,

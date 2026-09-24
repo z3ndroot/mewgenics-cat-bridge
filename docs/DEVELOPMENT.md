@@ -81,9 +81,11 @@ docs/                   this file
 
 ## Pipe commands (DLL)
 
-Read: `LIST_CATS`, `GET_CAT <key>`, `PEDIGREE`, `ROOMS`.
+Read: `LIST_CATS`, `GET_CAT <key>`, `PEDIGREE`, `ROOMS`, `DAY` (day, food,
+gold; LIST_CATS and PEDIGREE also carry `day`).
 Write: `SET_STAT <key> <stat> <value>`, `SET_HP <key> <value>`,
-`SET_PART <key> <part> <sprite_idx>`,
+`SET_PART <key> <part> <sprite_idx>`, `SET_FOOD <value>`,
+`SET_FURNITURE_EFFECT <type> <effect> <value>`,
 `SET_PASSIVE <key> <passive1|passive2|disorder1|disorder2> <name> <level>`.
 Debug: `DUMP_CAT <key>`, `CAT_SOURCES`, `COMPONENT_TYPES [addr]`,
 `DUMP_COMPONENT <key> <Type> [hexlen]` / `<n> #<Type>` / `<addr> @`.
@@ -263,6 +265,86 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   breeding.attraction / mating_outlook / fight_tendency implement this;
   evaluate_pair returns `mating`, suggest_breeding_pairs skips pairs under
   min_mating_chance. To verify: log nightly births per pair vs predicted.
+* Day counter (2026-09-25): the save property `current_day` lives at
+  MewDirector + 0x580 (int64). Found in Mewgenics.exe: the save loader
+  (~RVA 0x3a6db9) reads "current_day" and stores it at [r12 + 0x580]; the
+  breeding loop reads [MewDirector singleton (RVA 0x13dac30) + 0x580] (day 0
+  forces mating). Live value 97 = `current_day` 97 in a copy of the save.
+  Goes up by one per in-game night (97 -> 98 observed live, 2026-09-25).
+* Stimulation 200 test (days 112-114, Floor1_Small raised to 200 with
+  SET_FURNITURE_EFFECT, see below): 10 stat comparisons, the kitten took
+  the better value 7 times and the WORSE one 3 times (e.g. kitten
+  Швайгерт, 2 of 3 differing stats from the worse parent). So "always the
+  better stat at >= 196" is false. All data together, by room
+  Stimulation 0 / 4 / 13 / 200: 67% (n 30) / 51% (77) / 52% (82) / 70% (10);
+  overall 109 / 199 = 55%. breeding.py now models each stat as a coin
+  flip (P_BETTER_STAT = 0.5) and the tiers are gone. Caveat: in theory
+  inheritance could read Stimulation from somewhere other than the room
+  totals, but mating reads Comfort from those same totals.
+* Room effect totals (FurnitureGrid + 0x140) are recomputed from the
+  furniture continuously: writing the total (a since-removed command) changed Floor1_Small
+  Stimulation 13 -> 200 and the next read was 13 again. They are computed
+  from data/furniture_effects.gon as loaded in memory: a GON tree at
+  SpawnDatabase + 0xd48 (loader ~RVA 0x7a79cb copies it there). GON node
+  layout in `types/glaiel_house.hpp` (GonObject, 0xb0 bytes: children
+  vector +0x38, int +0x50, double +0x58, text +0x68, key +0x88, type +0xa8;
+  found by scanning the process for the monitor's name/desc strings).
+  `SET_FURNITURE_EFFECT object_electronics_monitor Stimulation 188` (the
+  only monitor is in Floor1_Small) -> the room showed Stimulation 200 right
+  away and kept it. The breeding code reads the same totals (Comfort via
+  the room's effect list, 0x2ea8c0), so this is how experiments get high
+  Stimulation. Lasts until the game restarts.
+* Birth-log results, days 97-111 (14 nights, 49 kittens, one save;
+  rooms of 9 / 9 / 2 cats, Comfort 3 / 3 / 8, Stimulation 13 / 4 / 0):
+  - Litter size CONFIRMED: 42 matings, mean 1.17 kittens vs 1.20 predicted
+    by p = fertility_A * fertility_B (one kitten w.p. p, twins w.p. p - 1).
+  - Isolated pair (only two cats in the attic): a pair with per-attempt
+    chance 0.56-0.83 bred 5 of 5 nights; a pair with 0.10-0.12 bred 3 of 7
+    nights. Both fit "each of the two cats makes one attempt per night":
+    P(night) = 1 - (1 - q)^2 = 0.81-0.97 and ~0.21 (3 of 7 is a bit high,
+    P(>=3) ~ 0.17). Consistent with the model; not yet a precise check.
+  - Shared rooms: pairs breed less often than q (e.g. q 0.2-0.3 -> 14% of
+    nights): each cat picks one partner per night (0x1f21a0, not decoded).
+  - Stimulation: kitten took the better parent's base stat in 98 of 171
+    stat comparisons (57%, z = 1.9 vs 50%); by room Stimulation 0 / 4 / 13:
+    71% (n 28) / 57% (n 61) / 52% (n 82) -- no upward trend, so nothing
+    speaks for Stimulation mattering below 32; the 32 / 95 / 196 tiers
+    remain untested (the house only has 17 Stimulation in total).
+* House food / gold (2026-09-25): int32 at HouseInventory + 0xb0 / + 0xb4
+  (save properties house_food / house_gold). Found in Mewgenics.exe: the
+  house loader (~RVA 0x2067dd, where the compiler copies "house_food" with
+  movsd) calls the property getter 0x22c5e0 (default 25) and stores the
+  result at [obj + 0xb0], the next property at [obj + 0xb4]; the saver
+  (~0x2060ba) reads them back from there. Checked live: gold 33 = save;
+  food 97 (save) -> 78 after one night with 19 house cats, i.e. 1 food per
+  cat per night. `SET_FOOD` (MCP `set_house_food`) set 78 -> 600 live: the
+  UI showed 140/140 (storage capacity; 40 of it from FoodStorage furniture)
+  and the night clamped it: 600 -> 140 - 20 cats = 120. So food above the
+  capacity is lost overnight; where the capacity lives isn't found yet.
+  MCP `get_house_status` reports day, food, gold and nights of food left.
+* Birth log (`mcp_server/birth_log.py`; developer tool, off in the MCP
+  server unless MEWGENICS_BIRTH_LOG=on; standalone
+  `tools/birth_logger.py`): polls PEDIGREE + LIST_CATS + ROOMS every 10 s
+  and writes one JSONL record per night to
+  %LOCALAPPDATA%\mewgenics-cat-bridgeirth_log.jsonl (MEWGENICS_BIRTH_LOG
+  = path or "off"). The pre-night state is the last snapshot before any new
+  kitten (with parents) appeared; a night is closed one poll after the day
+  changes, so it works whichever the game does first. Records: rooms
+  (Comfort, Stimulation, cats), compact cats, every co-housed pair with the
+  predicted mating chance, births (parents, parents' room, kitten stats /
+  body parts / innate). Nights where the day jumped by more than one are
+  marked `gap`. Save slots are told apart by a hash of the oldest pedigree
+  rows. `send_command` now serializes requests (lock) and retries while the
+  pipe is busy / between instances (errors 2, 231). First live night
+  (day 97 -> 98): logged one kitten (257 from 210 x 202, Floor1_Small) and
+  correctly skipped the stray that arrived the same morning. The logger
+  keeps its last 20 state changes (`recent_events` in the report;
+  tools/birth_logger.py prints them).
+  Kittens are cached on the first poll they appear in, so a kitten the
+  player removes right away still gets its stats logged (6 nights on
+  2026-09-25 lost 7 of 25 kittens' stats before this).
+* `tools/cat_bridge_dev.py eject` reads the shutdown export from the DLL
+  file that is actually loaded (it may come from another checkout).
 * Debug: `COMPONENT_TYPES [decimal addr]` lists component types per scene
   (and which one is at addr).
 * Debug: `DUMP_COMPONENT <sql_key> <TypeName> [hexlen]` hex-dumps a

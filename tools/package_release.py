@@ -28,6 +28,7 @@ FILES = [
     ("mod/ATTRIBUTION.md", "licenses/ATTRIBUTION.md"),
     ("tools/cat_bridge_dev.py", "tools/cat_bridge_dev.py"),
     ("tools/gpak.py", "tools/gpak.py"),
+    ("tools/birth_logger.py", "tools/birth_logger.py"),
 ]
 
 

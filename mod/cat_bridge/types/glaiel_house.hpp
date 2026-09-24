@@ -59,3 +59,33 @@ struct FurniturePiece : Component {
 };
 static_assert(offsetof(FurniturePiece, room) == 0x48);
 static_assert(offsetof(FurniturePiece, instance) == 0x2d8);
+
+// A parsed GON node (Tyler Glaiel's data format, https://github.com/TylerGlaiel/GON)
+// as laid out in Mewgenics 1.1.21239. Reverse-engineered 2026-09-25 from the
+// live furniture_effects tree: children by index at +0x38, the number both
+// as int (+0x50) and double (+0x58), the raw text (+0x68), the key (+0x88)
+// and the type (+0xa8: 1 string, 2 number, 3 object -- matches GON's enum).
+struct GonObject {
+    char _0[0x38];                             // name -> index map (not used)
+    MsvcReleaseModeVector<GonObject> children;
+    int32_t int_data;
+    char _54[4];
+    double float_data;
+    char _60[8];                               // bool_data + padding
+    MsvcReleaseModeXString string_data;
+    MsvcReleaseModeXString name;
+    int32_t type;
+    char _ac[4];
+};
+static_assert(sizeof(GonObject) == 0xb0);
+static_assert(offsetof(GonObject, children) == 0x38);
+static_assert(offsetof(GonObject, float_data) == 0x58);
+static_assert(offsetof(GonObject, string_data) == 0x68);
+static_assert(offsetof(GonObject, name) == 0x88);
+static_assert(offsetof(GonObject, type) == 0xa8);
+
+// data/furniture_effects.gon, loaded once into the "SpawnDatabase" component
+// (its loader, ~RVA 0x7a79cb in Mewgenics.exe, copies the file's GON tree to
+// this + 0xd48). The room effect totals are recomputed from it all the time.
+inline constexpr size_t SPAWNDATABASE_FURNITURE_EFFECTS = 0xd48;
+inline constexpr int32_t GON_NUMBER = 2;

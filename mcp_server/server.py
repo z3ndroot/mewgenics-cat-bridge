@@ -21,7 +21,10 @@ Run (only makes sense on Windows, with Mewgenics + the mod actually running):
 """
 
 import json
+import os
 import sys
+import threading
+import time
 
 import win32file
 import win32pipe
@@ -30,6 +33,7 @@ import pywintypes
 from mcp.server.fastmcp import FastMCP
 
 import advisor
+import birth_log
 import breeding
 import rooms as rooms_mod
 from game_data import (EFFECT_NOTES, MUTATION_SLOTS, STAT_NAMES, enrich_cat, furniture_effects,
@@ -37,28 +41,44 @@ from game_data import (EFFECT_NOTES, MUTATION_SLOTS, STAT_NAMES, enrich_cat, fur
 
 PIPE_NAME = r"\\.\pipe\cat_bridge"
 PIPE_TIMEOUT_MS = 5000
+# The mod serves one client at a time and re-creates the pipe after each
+# response: serialize our own requests (tools + the birth-log poller) and
+# retry briefly while the pipe is busy or between instances.
+_PIPE_LOCK = threading.Lock()
+_PIPE_RETRY_ERRORS = (2, 231)  # ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY
+_PIPE_RETRIES = 10
 
 mcp = FastMCP("mewgenics-cat-bridge")
 
 
 def send_command(command: str) -> dict:
     """Open the named pipe, send one command line, read one JSON response line, close."""
-    try:
-        handle = win32file.CreateFile(
-            PIPE_NAME,
-            win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-            0,
-            None,
-            win32file.OPEN_EXISTING,
-            0,
-            None,
-        )
-    except pywintypes.error as e:
-        return {
-            "ok": False,
-            "error": f"could not connect to {PIPE_NAME}: {e}. "
-                     f"Is Mewgenics running with cat_bridge.dll loaded?",
-        }
+    with _PIPE_LOCK:
+        return _send_command_locked(command)
+
+
+def _send_command_locked(command):
+    for attempt in range(_PIPE_RETRIES):
+        try:
+            handle = win32file.CreateFile(
+                PIPE_NAME,
+                win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                0,
+                None,
+                win32file.OPEN_EXISTING,
+                0,
+                None,
+            )
+            break
+        except pywintypes.error as e:
+            if e.winerror in _PIPE_RETRY_ERRORS and attempt < _PIPE_RETRIES - 1:
+                time.sleep(0.05)
+                continue
+            return {
+                "ok": False,
+                "error": f"could not connect to {PIPE_NAME}: {e}. "
+                         f"Is Mewgenics running with cat_bridge.dll loaded?",
+            }
 
     try:
         win32pipe.SetNamedPipeHandleState(handle, win32pipe.PIPE_READMODE_BYTE, None, None)
@@ -319,14 +339,14 @@ def get_family(sql_key: int, generations: int = 3) -> dict:
 
 
 @mcp.tool()
-def evaluate_pair(cat_a: int, cat_b: int, stimulation: float | None = None) -> dict:
+def evaluate_pair(cat_a: int, cat_b: int) -> dict:
     """Assess breeding two cats: can they breed at all (sex: sire = father,
     dam = mother, "?" cats can be either; gay cats only breed with "?" cats),
     how they're related, the kitten's coefficient of inbreeding (kitten_coi:
     0.25 = siblings/parent-child, 0.125 = half siblings, 0.0625 = cousins)
     with the game's own label (Без / Лёгкое / Среднее / Высокое /
     Королевское вырождение), which base stats the kitten can inherit (each stat
-    from one parent: `max` needs high Stimulation, `mean` = coin flip),
+    from one parent, about a coin flip which one: `max` is the best case),
     which mutations each parent can pass on per body-part slot, love/hate,
     and the room they share (they only breed together if housed together;
     Comfort <= 0 means fights instead of kittens).
@@ -337,16 +357,17 @@ def evaluate_pair(cat_a: int, cat_b: int, stimulation: float | None = None) -> d
     raised if B is A's lover and lowered if A loves another cat. When they
     try, both must agree: each with chance attraction x sqrt(1 + 0.1 x room
     Comfort); `chance_both_agree` is that product. Litter: p = product of
-    the two fertilities -> one kitten with chance p, twins with p - 1.
+    the two fertilities -> one kitten with chance p, twins with p - 1
+    (checked on 42 real matings: 1.17 kittens vs 1.20 predicted).
     `fight_tendency` is the game's relative score (aggression + hate,
-    reduced by attraction). How often cats pick each other as partners
-    isn't decoded, so this is a per-attempt chance, not per night.
+    reduced by attraction). A pair alone in a room gets about two attempts
+    a night (chance 1 - (1 - q)^2, consistent with 12 observed nights); in
+    a shared room each cat picks one partner per night (how isn't decoded),
+    so the real per-night chance there is lower.
 
-    Stimulation model (HYPOTHESIS from another project, not verified): per
-    stat the kitten takes the better parent's value with p = 0.5 below 32
-    Stimulation, 0.55 from 32, 0.7 from 95, 1.0 from 196. `stimulation`
-    overrides the value used (default: the pair's shared room, else the
-    house's best room) -- use it for what-ifs like "after buying furniture"."""
+    Stat inheritance: measured with a birth log, the kitten took the better
+    parent's value 55% of the time and room Stimulation (0 to 200) made no
+    visible difference -- so no furniture makes better kittens certain."""
     ped, cats, err = _load_breeding_state()
     if err:
         return err
@@ -354,14 +375,14 @@ def evaluate_pair(cat_a: int, cat_b: int, stimulation: float | None = None) -> d
     if missing:
         return {"ok": False, "error": f"cats not loaded (must be in the house): {missing}"}
     rooms, err = _load_rooms()
-    return dict(breeding.evaluate_pair(ped, cats[cat_a], cats[cat_b], rooms, stimulation), ok=True)
+    return dict(breeding.evaluate_pair(ped, cats[cat_a], cats[cat_b], rooms), ok=True)
 
 
 
 @mcp.tool()
 def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kitten_coi: float = 0.0625,
                            top: int = 10, include_impossible: bool = False,
-                           stimulation: float | None = None, min_mating_chance: float = 0.02) -> dict:
+                           min_mating_chance: float = 0.02) -> dict:
     """Rank breeding pairs among the living cats in the house.
 
     stat_weights: how much each base stat matters, e.g. {"str": 2, "con": 1}
@@ -370,12 +391,11 @@ def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kit
     the kitten gets each body-part slot from one parent).
     max_kitten_coi: skip pairs whose kitten would be more inbred than this
     (0 = only unrelated pairs, 0.0625 = up to cousins).
-    Sorted by the expected kitten at the pair's Stimulation, then by the
-    best possible kitten (each stat from the better parent).
+    Sorted by the expected kitten (each stat about a coin flip between the
+    parents), then by the best possible kitten.
     Pairs that can't breed (same sex, or a gay cat without a "?" partner)
     are skipped unless include_impossible=True. Each result says whether
-    the two share a room -- they must, to breed. `stimulation` overrides the
-    breeding room Stimulation used (see evaluate_pair for the model).
+    the two share a room -- they must, to breed.
     min_mating_chance: skip pairs that would almost never agree to mate
     (chance_both_agree below this at their room's Comfort, or the house's
     best Comfort if they're apart -- see evaluate_pair's `mating`)."""
@@ -385,7 +405,7 @@ def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kit
     rooms, _ = _load_rooms()
     pool = _breeding_pool(cats)
     pairs = breeding.suggest_pairs(ped, pool, stat_weights, max_kitten_coi, top, include_impossible, rooms,
-                                   stimulation, min_mating_chance)
+                                   min_mating_chance)
     return {"ok": True, "pairs_considered_from": len(pool), "pairs": pairs,
             "strays_included": [c["name"] for c in pool if c["outside"]]}
 
@@ -393,27 +413,23 @@ def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kit
 
 @mcp.tool()
 def plan_breeding(stat_weights: dict[str, float] | None = None, generations: int = 3,
-                  max_kitten_coi: float = 0.0625, stimulation: float | None = None) -> dict:
+                  max_kitten_coi: float = 0.0625) -> dict:
     """Plan several generations of breeding towards 7s (the max base stat)
     in the stats you care about (stat_weights as in suggest_breeding_pairs;
     default all stats). Greedy: each generation picks the best pair, and
     from generation 2 on one parent is the previous planned kitten, so the
     line keeps improving without passing max_kitten_coi. Each step is the
     best case (every stat from the better parent) plus the chance of
-    actually getting it and how many kittens that takes on average at the
-    breeding room's Stimulation, with a what-if for higher Stimulation.
-    Tells you which sex each planned kitten needs to be, and which stats no
-    cat in the house can supply (bring in a stray that has them).
-    `stimulation` defaults to the house's best room (see evaluate_pair for
-    the Stimulation model, a hypothesis)."""
+    actually getting it and how many kittens that takes on average (each
+    stat is about a coin flip between the parents -- measured; Stimulation
+    doesn't change that). Tells you which sex each planned kitten needs to
+    be, and which stats no cat in the house can supply (bring in a stray
+    that has them)."""
     ped, cats, err = _load_breeding_state()
     if err:
         return err
-    if stimulation is None:
-        rooms, _ = _load_rooms()
-        stimulation, _ = breeding.best_room_stimulation(rooms)
-    return dict(breeding.plan_generations(ped, _breeding_pool(cats), stat_weights, generations, max_kitten_coi,
-                                          stimulation=stimulation), ok=True)
+    return dict(breeding.plan_generations(ped, _breeding_pool(cats), stat_weights, generations, max_kitten_coi),
+                ok=True)
 
 
 
@@ -522,5 +538,77 @@ def suggest_room_setup(room: str, goal: str = "breeding") -> dict:
     return dict(rooms_mod.suggest_setup(list(rooms.values()), room, goal), ok=True)
 
 
+# ---------------------------------------------------------------- house
+
+@mcp.tool()
+def get_house_status() -> dict:
+    """The in-game day, the house's food and gold, and how long the food
+    lasts: every house cat eats 1 food per night (observed: 97 -> 78 with
+    19 cats)."""
+    resp = send_command("DAY")
+    if not resp.get("ok"):
+        return resp
+    cats = send_command("LIST_CATS")
+    n = sum(1 for c in cats.get("cats", []) if c.get("in_house")) if cats.get("ok") else None
+    out = dict(resp, house_cats=n)
+    if n and resp.get("food") is not None:
+        out["nights_of_food"] = resp["food"] // n
+    return out
+
+
+@mcp.tool()
+def set_house_food(value: int) -> dict:
+    """Set the house's food stock (a live write: ask the player first and
+    suggest saving). The response's `previous` is the old value, to undo
+    it. The game clamps food to the storage capacity overnight (shown in
+    the UI as food/capacity, e.g. 140/140), so setting more than that is
+    wasted. Persistence through the game's save is not verified yet."""
+    return send_command(f"SET_FOOD {int(value)}")
+
+
+@mcp.tool()
+def set_furniture_effect(furniture_type: str, effect: str, value: float) -> dict:
+    """For experiments: change a number in the game's loaded furniture data
+    (data/furniture_effects.gon), e.g. ("object_electronics_monitor",
+    "Stimulation", 188). Every room with that furniture recomputes its
+    totals at once (get_rooms shows it). Lasts until the game restarts --
+    the file on disk isn't touched; the response's `previous` undoes it.
+    Only effects the furniture already has can be changed. A live write:
+    ask the player first. Pick a furniture type that is only in the room
+    you want to change (get_rooms lists furniture per room)."""
+    if " " in furniture_type or " " in effect:
+        return {"ok": False, "error": "furniture_type and effect are keys without spaces"}
+    return send_command(f"SET_FURNITURE_EFFECT {furniture_type} {effect} {value}")
+
+
+# ---------------------------------------------------------------- birth log
+
+def birth_log_snapshot():
+    """One snapshot for the birth log, or None if the game isn't reachable."""
+    ped = send_command("PEDIGREE")
+    if not ped.get("ok"):
+        return None
+    cats = send_cat_command("LIST_CATS")
+    if not cats.get("ok"):
+        return None
+    rooms, err = _load_rooms()
+    if err:
+        return None
+    return birth_log.Snapshot(cats.get("day"), ped["pedigree"], cats["cats"], rooms)
+
+
+BIRTH_LOGGER = birth_log.BirthLogger()
+
+
+def start_birth_log():
+    """Developer tool, off by default: set MEWGENICS_BIRTH_LOG=on (or a log
+    path) to record every night while the server runs. See
+    tools/birth_logger.py."""
+    if os.environ.get("MEWGENICS_BIRTH_LOG", "off").lower() == "off":
+        return None
+    return birth_log.start_background(birth_log_snapshot, BIRTH_LOGGER)
+
+
 if __name__ == "__main__":
+    start_birth_log()
     mcp.run(transport="stdio")

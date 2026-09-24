@@ -329,7 +329,8 @@ ROOM_CAT_COMFORT_FREE = 4
 # and data/furniture_effects_guide.gon. Numbers are furniture "power".
 EFFECT_NOTES = {
     "Comfort": "high = cats breed more often; low = fights (sometimes to the death). -1 per cat beyond 4 in the room",
-    "Stimulation": "high = kittens take the BETTER parent's base stat, and inherit mutations/abilities/passives more often",
+    "Stimulation": "reportedly helps kittens inherit mutations/abilities/passives (unmeasured); measured: it does NOT "
+                   "make kittens take the better parent's base stat (55% at any Stimulation 0-200)",
     "Health": "high = injuries heal and diseases get cured, cats live longer; low = disease spreads",
     "Evolution": "the 'Mutation' room stat: chance for cats in the room to gain mutations",
     "Appeal": "house-wide: better daily strays",

@@ -18,6 +18,7 @@
 #include <vector>
 #include <charconv>
 #include <map>
+#include <cstring>
 
 // cat_bridge: dumps/edits live cat data over a named pipe, for an external
 // MCP server to expose to an LLM.
@@ -46,6 +47,26 @@ PrivateState P;
 MAKE_SDPORTAL(DATAOFF_glaiel__MewDirector__p_singleton,
     MewDirector *, get_p_mewdirector_singleton
 )
+
+// The in-game day counter (save property "current_day"): an int64 at
+// MewDirector + 0x580. Found in Mewgenics.exe 1.1.21239: the save loader
+// (~RVA 0x3a6dda) stores current_day there, and the breeding code reads the
+// same global (RVA 0x13dac30 = the MewDirector singleton). -1 if unloaded.
+int64_t current_day() {
+    MewDirector *p_mewdirector = get_p_mewdirector_singleton();
+    if(p_mewdirector == nullptr) {
+        return -1;
+    }
+    return *reinterpret_cast<const int64_t *>(reinterpret_cast<const uint8_t *>(p_mewdirector) + 0x580);
+}
+
+// House food and gold: two int32 at HouseInventory + 0xb0 / + 0xb4 (save
+// properties "house_food" / "house_gold"). Found in Mewgenics.exe 1.1.21239:
+// the house loader (~RVA 0x20680a) reads "house_food" (default 25) into
+// [obj + 0xb0] and the next property into [obj + 0xb4]; the saver writes them
+// back from there. Live values matched the save (gold 33) and food dropped by
+// one per house cat overnight (97 -> 78 with 19 cats).
+int32_t *house_money();
 
 std::string get_type_name(Component *component) {
     MsvcReleaseModeXString type_name = {};
@@ -114,6 +135,14 @@ Component *find_component(std::string_view type_name) {
         }
     }
     return nullptr;
+}
+
+int32_t *house_money() {
+    Component *inv = find_component("HouseInventory");
+    if(inv == nullptr) {
+        return nullptr;
+    }
+    return reinterpret_cast<int32_t *>(reinterpret_cast<uint8_t *>(inv) + 0xb0);
 }
 
 std::unordered_map<int64_t, FoundCat> collect_all_cats() {
@@ -324,10 +353,85 @@ std::string handle_request(std::string_view line) {
 
     std::string_view cmd = tokens[0];
 
+    // DAY: the day counter plus the house's food and gold.
+    if(cmd == "DAY") {
+        w.begin_object().kv("ok", true).kv("day", current_day());
+        if(int32_t *money = house_money()) {
+            w.kv("food", money[0]).kv("gold", money[1]);
+        }
+        w.end_object();
+        return w.str();
+    }
+
+    // SET_FURNITURE_EFFECT <furniture type> <effect> <value>: change a number
+    // in the loaded data/furniture_effects.gon (e.g. object_electronics_monitor
+    // Stimulation 188). Every room with that furniture picks it up at once;
+    // lasts until the game restarts (the file on disk is untouched). Only
+    // effects the furniture already has can be changed.
+    if(cmd == "SET_FURNITURE_EFFECT" && tokens.size() >= 4) {
+        double value = 0.0;
+        std::from_chars(tokens[3].data(), tokens[3].data() + tokens[3].size(), value);
+        Component *db = find_component("SpawnDatabase");
+        if(db == nullptr) {
+            w.begin_object().kv("ok", false).kv("error", std::string_view("SpawnDatabase not loaded")).end_object();
+            return w.str();
+        }
+        auto root = reinterpret_cast<GonObject *>(reinterpret_cast<uint8_t *>(db) + SPAWNDATABASE_FURNITURE_EFFECTS);
+        GonObject *effect = nullptr;
+        for(GonObject &item : root->children) {
+            if(item.name.as_native_string_view() != tokens[1]) {
+                continue;
+            }
+            for(GonObject &e : item.children) {
+                if(e.name.as_native_string_view() == tokens[2] && e.type == GON_NUMBER) {
+                    effect = &e;
+                }
+            }
+        }
+        if(effect == nullptr) {
+            w.begin_object().kv("ok", false)
+                .kv("error", std::string_view("no such furniture, or it has no such number effect")).end_object();
+            return w.str();
+        }
+        double previous = effect->float_data;
+        char text[32];
+        auto [end, ec] = std::to_chars(text, text + sizeof(text), value);
+        size_t len = static_cast<size_t>(end - text);
+        effect->int_data = static_cast<int32_t>(value);
+        effect->float_data = value;
+        if(effect->string_data._Myres < 16 && len < 16) {  // keep the raw text in step (inline buffer only)
+            std::memcpy(effect->string_data._Bx._Buf, text, len);
+            effect->string_data._Bx._Buf[len] = 0;
+            effect->string_data._Mysize = len;
+        }
+        w.begin_object().kv("ok", true).kv("previous", previous).kv("value", effect->float_data).end_object();
+        return w.str();
+    }
+
+    // SET_FOOD <value>: set the house's food stock.
+    if(cmd == "SET_FOOD" && tokens.size() >= 2) {
+        int32_t value = 0;
+        std::from_chars(tokens[1].data(), tokens[1].data() + tokens[1].size(), value);
+        int32_t *money = house_money();
+        if(money == nullptr) {
+            w.begin_object().kv("ok", false).kv("error", std::string_view("HouseInventory not loaded")).end_object();
+            return w.str();
+        }
+        if(value < 0) {
+            w.begin_object().kv("ok", false).kv("error", std::string_view("food must be >= 0")).end_object();
+            return w.str();
+        }
+        int32_t previous = money[0];
+        money[0] = value;
+        w.begin_object().kv("ok", true).kv("previous", previous).kv("food", money[0]).end_object();
+        return w.str();
+    }
+
     if(cmd == "LIST_CATS") {
         auto cats = collect_all_cats();
         w.begin_object();
         w.kv("ok", true);
+        w.kv("day", current_day());
         w.key("cats");
         w.begin_array();
         for(auto &[sql_key, found] : cats) {
@@ -556,6 +660,7 @@ std::string handle_request(std::string_view line) {
         }
         w.begin_object();
         w.kv("ok", true);
+        w.kv("day", current_day());
         w.key("pedigree");
         w.begin_array();
         table.for_each([&](const PedigreeEntry &e) {

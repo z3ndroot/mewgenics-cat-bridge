@@ -114,14 +114,15 @@ def find_pid():
     die(f"{PROCESS_NAME} is not running")
 
 
-def find_module(pid, name):
+def find_module(pid, name, with_path=False):
+    """Base address of a loaded module (and its file path if with_path)."""
     snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
     entry = MODULEENTRY32W(dwSize=ctypes.sizeof(MODULEENTRY32W))
     try:
         ok = k32.Module32FirstW(snap, ctypes.byref(entry))
         while ok:
             if entry.szModule.lower() == name.lower():
-                return entry.modBaseAddr
+                return (entry.modBaseAddr, entry.szExePath) if with_path else entry.modBaseAddr
             ok = k32.Module32NextW(snap, ctypes.byref(entry))
     finally:
         k32.CloseHandle(snap)
@@ -179,11 +180,14 @@ def eject():
     import pefile
 
     pid = find_pid()
-    base = find_module(pid, LIVE_DLL.name)
-    if not base:
+    found = find_module(pid, LIVE_DLL.name, with_path=True)
+    if not found:
         die("cat_bridge.dll is not loaded")
+    # read the export from the file that is actually loaded (it may have been
+    # injected from another checkout / worktree)
+    base, loaded_path = found
 
-    pe = pefile.PE(str(LIVE_DLL), fast_load=True)
+    pe = pefile.PE(loaded_path, fast_load=True)
     pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_EXPORT"]])
     rva = next((s.address for s in pe.DIRECTORY_ENTRY_EXPORT.symbols if s.name == b"CatBridgeShutdown"), None)
     pe.close()

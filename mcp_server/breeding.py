@@ -13,9 +13,13 @@ Facts this relies on (verified 2026-09-24, v1.1.21239):
 * Kittens inherit each base stat (stats_base) from one parent, and each
   body-part slot (both ears, both eyes, ...) as a whole from one parent --
   so a parent's mutation can be passed on.
+* Which parent each base stat comes from is (close to) a coin flip at any
+  Stimulation: measured on 199 stat comparisons in rooms with Stimulation
+  0 / 4 / 13 / 200 (birth log, 2026-09-25) the kitten took the better value
+  55% of the time, with worse values even at 200. The "Stimulation 32 / 95
+  / 196 tiers" from another project are therefore not used.
 From the game's tips / a community guide, not verified by us:
-* Stimulation in the room makes kittens take the better parent's stat and
-  pass mutations/abilities more often; furniture effects can bias it too.
+* Stimulation reportedly helps pass on mutations / abilities (unmeasured).
 * Gay cats only breed with "?" cats. Which cats are gay is the game's own
   rule for its UI icon (sexuality > 0.9; < 0.1 straight, else bi -- read
   from Mewgenics.exe, see game_data.orientation_label). In the game's
@@ -33,25 +37,13 @@ STAT_NAMES = ("str", "dex", "con", "int", "spd", "cha", "lck")
 SEX_NAMES = {0: "male", 1: "female", 2: "either (?)"}
 MAX_BASE_STAT = 7
 
-# HYPOTHESIS (from https://github.com/jph6366/mewgenics-mcp; not
-# verified against the game): chance that a kitten takes the BETTER
-# parent's value, per stat, by Stimulation. Consistent with what we've
-# seen at Stimulation 13 (kittens got the lower value about half the time).
-STIMULATION_TIERS = ((196, 1.0), (95, 0.7), (32, 0.55), (0, 0.5))
+# Chance that a kitten takes the BETTER parent's value, per stat. Measured
+# with the birth log (see docs/DEVELOPMENT.md): 109 of 199 = 55%, no effect
+# of room Stimulation between 0 and 200. Modelled as a coin flip.
+P_BETTER_STAT = 0.5
+P_BETTER_STAT_NOTE = ("measured: kittens took the better parent's stat 55% of the time (199 comparisons, "
+                      "room Stimulation 0-200, no Stimulation effect seen) -- modelled as a coin flip")
 MUTATION_REROLL_CHANCE = 0.2  # hypothesis: per body-part slot
-
-
-def p_better_stat(stimulation):
-    for threshold, p in STIMULATION_TIERS:
-        if stimulation >= threshold:
-            return p
-    return 0.5
-
-
-def next_stimulation_tier(stimulation):
-    """(threshold, p) of the next tier up, or None at the top."""
-    higher = [(t, p) for t, p in STIMULATION_TIERS if t > stimulation]
-    return min(higher) if higher else None
 
 
 def birth_defect_chance(coi):
@@ -263,10 +255,10 @@ def sire_dam(cat_x, cat_y):
     return None
 
 
-def kitten_stat_range(cat_x, cat_y, stimulation=0.0):
-    """Each kitten base stat comes from one parent's stats_base. `expected`
-    uses p_better_stat(stimulation) (a hypothesis); `max` is the best case."""
-    p = p_better_stat(stimulation)
+def kitten_stat_range(cat_x, cat_y):
+    """Each kitten base stat comes from one parent's stats_base: `expected`
+    with P_BETTER_STAT (measured, ~coin flip); `max` is the best case."""
+    p = P_BETTER_STAT
     out = {}
     for s in STAT_NAMES:
         a, b = cat_x["stats_base"][s], cat_y["stats_base"][s]
@@ -293,7 +285,7 @@ def slot_mutations(cat):
 def kitten_mutations(cat_x, cat_y):
     """Per slot, what each parent would pass on. The kitten gets each slot
     from one parent (verified), Stimulation reportedly favours the mutated
-    one, and each slot may be re-rolled at random (~20%, hypothesis)."""
+    one (unmeasured), and each slot may be re-rolled at random (~20%, hypothesis)."""
     mx, my = slot_mutations(cat_x), slot_mutations(cat_y)
     out = []
     for slot in sorted(set(mx) | set(my)):
@@ -330,16 +322,11 @@ def kitten_ability_outlook(cat_x, cat_y):
     }
 
 
-def evaluate_pair(ped, cat_x, cat_y, rooms_by_name=None, stimulation=None):
-    """stimulation: the breeding room's Stimulation to assume. Default: the
-    room the two share, else the best room in the house (move them there)."""
+def evaluate_pair(ped, cat_x, cat_y, rooms_by_name=None):
     kx, ky = cat_x["sql_key"], cat_y["sql_key"]
     roles = sire_dam(cat_x, cat_y)
     kitten_coi = ped.kinship(kx, ky)
-    stim_source = "given"
-    if stimulation is None:
-        stimulation, stim_source = _pair_stimulation(cat_x, cat_y, rooms_by_name)
-    stats = kitten_stat_range(cat_x, cat_y, stimulation)
+    stats = kitten_stat_range(cat_x, cat_y)
     warnings = []
     if roles is None:
         why = [f"{c['name']} is gay (only breeds with '?' cats)" for c in (cat_x, cat_y)
@@ -387,9 +374,7 @@ def evaluate_pair(ped, cat_x, cat_y, rooms_by_name=None, stimulation=None):
         "kitten_coi": kitten_coi,
         "inbreeding": inbreeding_level(kitten_coi),
         "birth_defect_chance_hypothesis": birth_defect_chance(kitten_coi),
-        "stimulation": {"value": stimulation, "source": stim_source,
-                        "p_better_stat_hypothesis": p_better_stat(stimulation),
-                        "next_tier": _tier_ref(next_stimulation_tier(stimulation))},
+        "stat_inheritance": {"p_better_stat": P_BETTER_STAT, "note": P_BETTER_STAT_NOTE},
         "kitten_stats_base": stats,
         "kitten_best_total": sum(v["max"] for v in stats.values()),
         "kitten_expected_total": round(sum(v["expected"] for v in stats.values()), 2),
@@ -404,29 +389,10 @@ def evaluate_pair(ped, cat_x, cat_y, rooms_by_name=None, stimulation=None):
     }
 
 
-def _tier_ref(tier):
-    return None if tier is None else {"stimulation": tier[0], "p_better_stat": tier[1]}
-
-
-def best_room_stimulation(rooms_by_name):
-    if not rooms_by_name:
-        return 0.0, None
-    name, room = max(rooms_by_name.items(), key=lambda kv: kv[1]["displayed"].get("Stimulation", 0.0))
-    return room["displayed"].get("Stimulation", 0.0), name
-
-
 def _best_comfort(rooms_by_name):
     if not rooms_by_name:
         return 0.0
     return max(r["displayed"].get("Comfort", 0.0) for r in rooms_by_name.values())
-
-
-def _pair_stimulation(cat_x, cat_y, rooms_by_name):
-    room = cat_x.get("room")
-    if room and room == cat_y.get("room") and rooms_by_name and room in rooms_by_name:
-        return rooms_by_name[room]["displayed"].get("Stimulation", 0.0), f"their room {room}"
-    value, name = best_room_stimulation(rooms_by_name)
-    return value, (f"best room {name} (move them there)" if name else "unknown, assumed 0")
 
 
 def _weights(stat_weights):
@@ -441,9 +407,9 @@ def mutation_value(cat, weights):
 
 
 def suggest_pairs(ped, cats, stat_weights=None, max_kitten_coi=0.0625, top=10, include_impossible=False,
-                  rooms_by_name=None, stimulation=None, min_mating_chance=0.0):
-    """Ranked by the EXPECTED kitten at the pair's Stimulation (see
-    evaluate_pair), then by the best case."""
+                  rooms_by_name=None, min_mating_chance=0.0):
+    """Ranked by the EXPECTED kitten (see kitten_stat_range), then by the
+    best case."""
     weights = _weights(stat_weights)
     pool = [c for c in cats if not c.get("dead")]
     results = []
@@ -459,23 +425,21 @@ def suggest_pairs(ped, cats, stat_weights=None, max_kitten_coi=0.0625, top=10, i
                 comfort = room["displayed"].get("Comfort", 0.0) if room else _best_comfort(rooms_by_name)
                 if mating_outlook(x, y, comfort)["chance_both_agree"] < min_mating_chance:
                     continue
-            stim = stimulation if stimulation is not None else _pair_stimulation(x, y, rooms_by_name)[0]
-            rng = kitten_stat_range(x, y, stim)
+            rng = kitten_stat_range(x, y)
             best = sum(weights[s] * rng[s]["max"] for s in STAT_NAMES)
             expected = sum(weights[s] * rng[s]["expected"] for s in STAT_NAMES)
             # a good mutation on either parent can be passed on (roughly half the time)
             muts = 0.5 * (max(mutation_value(x, weights), 0) + max(mutation_value(y, weights), 0))
             results.append((expected + muts, best + muts, -kin, x, y))
     results.sort(key=lambda r: (r[0], r[1], r[2]), reverse=True)
-    return [dict(evaluate_pair(ped, x, y, rooms_by_name, stimulation),
+    return [dict(evaluate_pair(ped, x, y, rooms_by_name),
                  score_expected=round(expected, 2), score_best=best)
             for expected, best, _, x, y in results[:top]]
 
 
 # ---------------------------------------------------------------- planning
 
-def plan_generations(ped, cats, stat_weights=None, generations=3, max_kitten_coi=0.0625, target=MAX_BASE_STAT,
-                     stimulation=0.0):
+def plan_generations(ped, cats, stat_weights=None, generations=3, max_kitten_coi=0.0625, target=MAX_BASE_STAT):
     """Greedy multi-generation plan towards `target` in the weighted stats.
 
     Each generation picks the pair whose best-case kitten (every stat from
@@ -483,8 +447,7 @@ def plan_generations(ped, cats, stat_weights=None, generations=3, max_kitten_coi
     the pool so later generations can use it. The kitten's sex is unknown
     in advance, so it's treated as able to pair with anyone of a compatible
     sex -- the plan says which sex it needs. Each step also gives the chance
-    of actually getting that kitten at `stimulation` (hypothesis tiers), and
-    a what-if for higher Stimulation.
+    of actually getting that kitten (each stat ~ a coin flip, measured).
     """
     weights = _weights(stat_weights)
     wanted = [s for s in STAT_NAMES if weights[s] > 0]
@@ -518,7 +481,7 @@ def plan_generations(ped, cats, stat_weights=None, generations=3, max_kitten_coi
         pool.append({"sql_key": vkey, "name": name, "virtual": True, "sex": 2, "sexuality": 0.0,
                      "stats_base": kitten, "dead": False})
         reached = all(kitten[s] >= target for s in wanted)
-        p = chance_of_best_kitten(kitten_stat_range(x, y, stimulation), wanted)
+        p = chance_of_best_kitten(kitten_stat_range(x, y), wanted)
         steps.append({
             "generation": gen,
             "parents": [_plan_ref(x), _plan_ref(y)],
@@ -539,24 +502,17 @@ def plan_generations(ped, cats, stat_weights=None, generations=3, max_kitten_coi
         last = steps[-1]["kitten_stats_base_if_best"]
         missing = {s: last[s] for s in wanted if last[s] < target}
 
-    def total_kittens(stim):
-        return round(sum(1 / chance_of_best_kitten(kitten_stat_range(*st["_pair"], stim), wanted)
-                         for st in steps if "_pair" in st), 1)
-
-    what_if = {f"stimulation {t}": {"p_better_stat": p, "kittens_needed_total": total_kittens(t)}
-               for t, p in sorted(STIMULATION_TIERS) if t > stimulation}
-    needed_now = total_kittens(stimulation)
+    needed = round(sum(1 / chance_of_best_kitten(kitten_stat_range(*st["_pair"]), wanted)
+                       for st in steps if "_pair" in st), 1)
     for st in steps:
         st.pop("_pair", None)
     return {
-        "stimulation": stimulation,
-        "p_better_stat_hypothesis": p_better_stat(stimulation),
-        "kittens_needed_total": needed_now,
-        "what_if_more_stimulation": what_if,
+        "p_better_stat": P_BETTER_STAT,
+        "kittens_needed_total": needed,
         "notes": [
-            "kittens_needed counts only the stat lottery (tiers are a hypothesis); each planned kitten "
-            "must ALSO be the right sex for the next step, roughly doubling the count",
-            "raising the breeding room's Stimulation (furniture) is the main lever: see suggest_room_setup",
+            "kittens_needed counts only the stat lottery; each planned kitten must ALSO be the right sex "
+            "for the next step, roughly doubling the count",
+            P_BETTER_STAT_NOTE,
         ],
         "steps": steps,
         "still_below_target": missing,
