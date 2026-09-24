@@ -199,7 +199,8 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   frees the old MSVC string and constructs the new one on the process heap
   (host_alloc = the game CRT's heap). Verified in-game 2026-09-25: gave a
   cat ToadStyle lvl 1 -> passive shown, SPD +4 as predicted; clearing
-  ("None") restored it. Persistence across save/reload NOT yet checked.
+  ("None") restored it. Survives the game's own save + reload (checked
+  in-game by the player, 2026-09-25).
   Passive entries in LIST_CATS now carry their `slot`.
 * Debug: `COMPONENT_TYPES [decimal addr]` lists component types per scene
   (and which one is at addr).
@@ -293,8 +294,8 @@ SQLite) is used for validation only; the tool reads live memory.
 * Cats are found through loaded scenes; tested on the house screen. Other
   screens (adventure, map) are untested.
 * One request in flight, one pipe client at a time.
-* Writes are live-memory edits. Stat edits survive the game's own save;
-  passive and body-part edits haven't been save/reload-tested yet.
+* Writes are live-memory edits. Stat and passive edits survive the game's
+  own save; body-part edits haven't been save/reload-tested yet.
 * No equipment editing, no adding/removing cats, no active-ability editing
   yet (the fields are in `types/glaiel_cat.hpp`; `SET_PASSIVE` shows how
   to write an MSVC string safely).
