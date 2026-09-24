@@ -269,7 +269,7 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   (~RVA 0x3a6db9) reads "current_day" and stores it at [r12 + 0x580]; the
   breeding loop reads [MewDirector singleton (RVA 0x13dac30) + 0x580] (day 0
   forces mating). Live value 97 = `current_day` 97 in a copy of the save.
-  Still to confirm: it goes up by one per in-game night.
+  Goes up by one per in-game night (97 -> 98 observed live, 2026-09-25).
 * Birth log (`mcp_server/birth_log.py`, MCP `birth_log_report`, standalone
   `tools/birth_logger.py`): polls PEDIGREE + LIST_CATS + ROOMS every 20 s
   and writes one JSONL record per night to
@@ -282,7 +282,11 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   body parts / innate). Nights where the day jumped by more than one are
   marked `gap`. Save slots are told apart by a hash of the oldest pedigree
   rows. `send_command` now serializes requests (lock) and retries while the
-  pipe is busy / between instances (errors 2, 231).
+  pipe is busy / between instances (errors 2, 231). First live night
+  (day 97 -> 98): logged one kitten (257 from 210 x 202, Floor1_Small) and
+  correctly skipped the stray that arrived the same morning. The logger
+  keeps its last 20 state changes (`recent_events` in the report;
+  tools/birth_logger.py prints them).
 * `tools/cat_bridge_dev.py eject` reads the shutdown export from the DLL
   file that is actually loaded (it may come from another checkout).
 * Debug: `COMPONENT_TYPES [decimal addr]` lists component types per scene

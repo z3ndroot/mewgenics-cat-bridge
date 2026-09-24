@@ -37,7 +37,7 @@ CAT_FIELDS = ("sql_key", "name", "sex", "room", "stats_base", "libido", "sexuali
 
 def save_fingerprint(pedigree_rows):
     """Identifies the save slot: hash of its oldest pedigree entries."""
-    oldest = sorted(pedigree_rows)[:32]
+    oldest = sorted((int(k), int(a), int(b)) for k, a, b, _ in pedigree_rows)[:32]
     return hashlib.sha1(json.dumps(oldest).encode()).hexdigest()[:12]
 
 
@@ -140,6 +140,14 @@ class BirthLogger:
         self.last_poll = None
         self.last_day = None
         self.nights_written = 0
+        self.events = []       # recent state changes, for diagnosing missed nights
+
+    def _event(self, snap, what):
+        self.events = (self.events + [{"t": round(snap.time), "day": snap.day, "what": what}])[-20:]
+        if self.on_event:
+            self.on_event(self.events[-1])
+
+    on_event = None
 
     def _logged(self, save, day_after):
         return any(r.get("save") == save and r.get("day_after") == day_after for r in read_log(self.path))
@@ -151,26 +159,38 @@ class BirthLogger:
     def update(self, snap):
         self.last_poll = snap.time
         if not snap.usable:
+            if self.pre is not None and snap.day != self.pre.day:
+                self._event(snap, f"unusable snapshot (rooms={len(snap.rooms or {})}, cats={len(snap.cats)})")
             return None
         self.last_day = snap.day
         if self.pre is None or self.pre.save != snap.save or snap.day < self.pre.day:
+            why = ("start" if self.pre is None else "other save" if self.pre.save != snap.save
+                   else f"day went back {self.pre.day} -> {snap.day}")
+            self._event(snap, f"reset: {why}")
             self._reset(snap)  # first snapshot, another save slot, or an older save loaded
             return None
         born = any(k not in self.baseline and (a >= 0 or b >= 0) for k, (a, b) in snap.parents.items())
         if snap.day == self.pre.day:
+            if born and self.pre is not None and not getattr(self, "_born_seen", False):
+                self._event(snap, "kittens appeared before the day changed")
+            self._born_seen = born
             if not born:
                 self.pre = snap
                 self.baseline |= set(snap.parents)  # strays arriving during the day
             return None
         if self.pending is None or self.pending.day != snap.day:
             self.pending = snap  # the day just changed: give late kittens one more poll
+            self._event(snap, f"day changed {self.pre.day} -> {snap.day}")
             return None
         record = night_record(self.pre, snap)
         if snap.day - self.pre.day != 1:
             record["gap"] = True   # we missed a day: don't use it for per-night statistics
         self._reset(snap)
+        self._born_seen = False
         if self._logged(record["save"], record["day_after"]):
+            self._event(snap, "night already logged")
             return None
+        self._event(snap, f"night logged: {len(record['births'])} birth(s)")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -180,7 +200,8 @@ class BirthLogger:
     def status(self):
         return {"log_path": str(self.path), "last_poll": self.last_poll, "current_day": self.last_day,
                 "waiting_to_close_night": self.pending is not None,
-                "nights_written_this_session": self.nights_written, "last_error": self.last_error}
+                "nights_written_this_session": self.nights_written, "last_error": self.last_error,
+                "recent_events": self.events[-5:]}
 
 
 def run_poller(fetch, logger, stop=None, interval=POLL_SECONDS, on_record=None):
@@ -195,6 +216,8 @@ def run_poller(fetch, logger, stop=None, interval=POLL_SECONDS, on_record=None):
                     on_record(rec)
         except Exception as e:  # keep polling whatever happens
             logger.last_error = f"{type(e).__name__}: {e}"
+            if logger.on_event:
+                logger.on_event({"t": round(time.time()), "what": f"error: {logger.last_error}"})
         if stop is not None:
             stop.wait(interval)
         else:

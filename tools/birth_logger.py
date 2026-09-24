@@ -26,8 +26,10 @@ def main():
         print(f"day {rec['day_after']}: {len(rec['births'])} kitten(s){': ' + names if names else ''}"
               + (" (gap: missed a day)" if rec.get("gap") else ""))
 
+    logger.on_event = lambda e: print(f"  [{e.get('day', '')}] {e['what']}", flush=True)
+    interval = float(sys.argv[1]) if len(sys.argv) > 1 else birth_log.POLL_SECONDS
     try:
-        birth_log.run_poller(server.birth_log_snapshot, logger, on_record=on_record)
+        birth_log.run_poller(server.birth_log_snapshot, logger, interval=interval, on_record=on_record)
     except KeyboardInterrupt:
         pass
 
