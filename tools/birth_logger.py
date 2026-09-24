@@ -1,6 +1,6 @@
 """
 Run the birth log on its own (without Claude Desktop): polls the game every
-20 s and appends a record to the birth log each in-game night.
+10 s and appends a record to the birth log each in-game night.
 
     python tools\\birth_logger.py
 

@@ -29,7 +29,7 @@ import breeding
 
 LOG_PATH = Path(os.environ.get("MEWGENICS_BIRTH_LOG")
                 or Path(os.environ.get("LOCALAPPDATA", Path.home())) / "mewgenics-cat-bridge" / "birth_log.jsonl")
-POLL_SECONDS = 20
+POLL_SECONDS = 10
 
 CAT_FIELDS = ("sql_key", "name", "sex", "room", "stats_base", "libido", "sexuality", "fertility", "aggression",
               "lover_sql_key", "lover_affinity", "hater_sql_key", "hater_affinity", "coi", "body_parts")
@@ -67,8 +67,10 @@ class Snapshot:
         return self.day is not None and self.day >= 0 and bool(self.rooms) and bool(self.cats)
 
 
-def night_record(before, after):
-    """The record for the night between two snapshots of consecutive days."""
+def night_record(before, after, kitten_cache=None):
+    """The record for the night between two snapshots of consecutive days.
+    kitten_cache: {key: compact cat} of kittens seen since `before`, for
+    kittens the player removed before `after` was taken."""
     rooms = {name: {"Comfort": _room_stat(r, "Comfort"), "Stimulation": _room_stat(r, "Stimulation"),
                     "cats": [c["sql_key"] if isinstance(c, dict) else c for c in r["cats"]]}
              for name, r in before.rooms.items()}
@@ -97,7 +99,7 @@ def night_record(before, after):
         kitten = after.cats.get(key)
         room = next((before.cats[p].get("room") for p in (sire, dam) if p in before.cats), None)
         births.append({"kitten": key, "sire": sire, "dam": dam, "parents_room": room,
-                       "kitten_cat": _compact_cat(kitten) if kitten else None})
+                       "kitten_cat": _compact_cat(kitten) if kitten else (kitten_cache or {}).get(key)})
     return {
         "type": "night", "save": after.save, "day_before": before.day, "day_after": after.day,
         "logged_at": round(after.time), "snapshot_age_s": round(after.time - before.time),
@@ -141,6 +143,7 @@ class BirthLogger:
         self.last_day = None
         self.nights_written = 0
         self.events = []       # recent state changes, for diagnosing missed nights
+        self.kittens = {}      # compact data of new kittens, kept in case they're removed
 
     def _event(self, snap, what):
         self.events = (self.events + [{"t": round(snap.time), "day": snap.day, "what": what}])[-20:]
@@ -155,6 +158,7 @@ class BirthLogger:
     def _reset(self, snap):
         self.pre, self.pending = snap, None
         self.baseline = set(snap.parents)
+        self.kittens = {}
 
     def update(self, snap):
         self.last_poll = snap.time
@@ -170,6 +174,9 @@ class BirthLogger:
             self._reset(snap)  # first snapshot, another save slot, or an older save loaded
             return None
         born = any(k not in self.baseline and (a >= 0 or b >= 0) for k, (a, b) in snap.parents.items())
+        for k, c in snap.cats.items():
+            if k not in self.baseline and k not in self.kittens:
+                self.kittens[k] = _compact_cat(c)
         if snap.day == self.pre.day:
             if born and self.pre is not None and not getattr(self, "_born_seen", False):
                 self._event(snap, "kittens appeared before the day changed")
@@ -182,7 +189,7 @@ class BirthLogger:
             self.pending = snap  # the day just changed: give late kittens one more poll
             self._event(snap, f"day changed {self.pre.day} -> {snap.day}")
             return None
-        record = night_record(self.pre, snap)
+        record = night_record(self.pre, snap, self.kittens)
         if snap.day - self.pre.day != 1:
             record["gap"] = True   # we missed a day: don't use it for per-night statistics
         self._reset(snap)

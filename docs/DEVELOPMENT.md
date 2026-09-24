@@ -283,7 +283,7 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   capacity is lost overnight; where the capacity lives isn't found yet.
   MCP `get_house_status` reports day, food, gold and nights of food left.
 * Birth log (`mcp_server/birth_log.py`, MCP `birth_log_report`, standalone
-  `tools/birth_logger.py`): polls PEDIGREE + LIST_CATS + ROOMS every 20 s
+  `tools/birth_logger.py`): polls PEDIGREE + LIST_CATS + ROOMS every 10 s
   and writes one JSONL record per night to
   %LOCALAPPDATA%\mewgenics-cat-bridgeirth_log.jsonl (MEWGENICS_BIRTH_LOG
   = path or "off"). The pre-night state is the last snapshot before any new
@@ -299,6 +299,9 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   correctly skipped the stray that arrived the same morning. The logger
   keeps its last 20 state changes (`recent_events` in the report;
   tools/birth_logger.py prints them).
+  Kittens are cached on the first poll they appear in, so a kitten the
+  player removes right away still gets its stats logged (6 nights on
+  2026-09-25 lost 7 of 25 kittens' stats before this).
 * `tools/cat_bridge_dev.py eject` reads the shutdown export from the DLL
   file that is actually loaded (it may come from another checkout).
 * Debug: `COMPONENT_TYPES [decimal addr]` lists component types per scene
