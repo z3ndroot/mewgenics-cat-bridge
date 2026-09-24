@@ -116,7 +116,12 @@ def list_cats(include_all: bool = False) -> dict:
     `stats` is the total the game displays: stats_base + stats_levelling +
     stats_injuries + stats_class (collar) + stats_items + stats_passives +
     stats_mutations (body-part mutations, listed in `mutations`). An hp of
-    1073741823 (0x3FFFFFFF) is a game sentinel, apparently "not set / full"."""
+    1073741823 (0x3FFFFFFF) is a game sentinel, apparently "not set / full".
+
+    `temperament` = libido, aggression and inbreeding with the labels the
+    cat info tab shows (e.g. "Высокая агрессия", "Лёгкое вырождение"; the
+    thresholds are the game's own, read from its code), and orientation
+    (straight / bi / gay -- gay cats only breed with "?" cats)."""
     resp = send_cat_command("LIST_CATS")
     if resp.get("ok") and not include_all:
         resp["cats"] = [c for c in resp["cats"] if c["in_house"]]
@@ -319,11 +324,23 @@ def evaluate_pair(cat_a: int, cat_b: int, stimulation: float | None = None) -> d
     dam = mother, "?" cats can be either; gay cats only breed with "?" cats),
     how they're related, the kitten's coefficient of inbreeding (kitten_coi:
     0.25 = siblings/parent-child, 0.125 = half siblings, 0.0625 = cousins)
-    and its risk tier, which base stats the kitten can inherit (each stat
+    with the game's own label (Без / Лёгкое / Среднее / Высокое /
+    Королевское вырождение), which base stats the kitten can inherit (each stat
     from one parent: `max` needs high Stimulation, `mean` = coin flip),
     which mutations each parent can pass on per body-part slot, love/hate,
     and the room they share (they only breed together if housed together;
     Comfort <= 0 means fights instead of kittens).
+
+    `mating` uses the game's own mating formula (read from its code):
+    attraction(A->B) = A's libido x orientation (straight cats want the
+    other sex, gay the same sex, "?" cats anyone) x B's charisma x 0.15,
+    raised if B is A's lover and lowered if A loves another cat. When they
+    try, both must agree: each with chance attraction x sqrt(1 + 0.1 x room
+    Comfort); `chance_both_agree` is that product. Litter: p = product of
+    the two fertilities -> one kitten with chance p, twins with p - 1.
+    `fight_tendency` is the game's relative score (aggression + hate,
+    reduced by attraction). How often cats pick each other as partners
+    isn't decoded, so this is a per-attempt chance, not per night.
 
     Stimulation model (HYPOTHESIS from another project, not verified): per
     stat the kitten takes the better parent's value with p = 0.5 below 32
@@ -344,7 +361,7 @@ def evaluate_pair(cat_a: int, cat_b: int, stimulation: float | None = None) -> d
 @mcp.tool()
 def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kitten_coi: float = 0.0625,
                            top: int = 10, include_impossible: bool = False,
-                           stimulation: float | None = None) -> dict:
+                           stimulation: float | None = None, min_mating_chance: float = 0.02) -> dict:
     """Rank breeding pairs among the living cats in the house.
 
     stat_weights: how much each base stat matters, e.g. {"str": 2, "con": 1}
@@ -358,14 +375,17 @@ def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kit
     Pairs that can't breed (same sex, or a gay cat without a "?" partner)
     are skipped unless include_impossible=True. Each result says whether
     the two share a room -- they must, to breed. `stimulation` overrides the
-    breeding room Stimulation used (see evaluate_pair for the model)."""
+    breeding room Stimulation used (see evaluate_pair for the model).
+    min_mating_chance: skip pairs that would almost never agree to mate
+    (chance_both_agree below this at their room's Comfort, or the house's
+    best Comfort if they're apart -- see evaluate_pair's `mating`)."""
     ped, cats, err = _load_breeding_state()
     if err:
         return err
     rooms, _ = _load_rooms()
     pool = _breeding_pool(cats)
     pairs = breeding.suggest_pairs(ped, pool, stat_weights, max_kitten_coi, top, include_impossible, rooms,
-                                   stimulation)
+                                   stimulation, min_mating_chance)
     return {"ok": True, "pairs_considered_from": len(pool), "pairs": pairs,
             "strays_included": [c["name"] for c in pool if c["outside"]]}
 
