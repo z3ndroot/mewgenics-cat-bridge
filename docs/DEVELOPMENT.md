@@ -226,7 +226,10 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   sexuality (+0xbc0): < 0.1 straight, > 0.9 gay, else bi (icon only).
   Offsets match `types/glaiel_cat.hpp`. Checked against the UI: cat 226
   (libido 0.534, aggression 0.367, coi 0) = Среднее либидо / Средняя
-  агрессия / Без вырождения. `enrich_cat` adds `temperament`;
+  агрессия / Без вырождения; near-threshold cats checked by the player
+  too: aggression 0.701 = Высокая, coi 0.103 = Лёгкое, coi 0.302 =
+  Среднее, libido 0.188 = Низкое, sexuality 0.997 / 0.935 = gay icon.
+  `enrich_cat` adds `temperament`;
   breeding.orientation and inbreeding_level now use these thresholds
   (the old 0.5 gay cut-off was a guess). Whether bi cats breed with
   anyone, and what libido/aggression actually do, is unverified.
