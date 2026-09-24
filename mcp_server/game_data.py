@@ -413,6 +413,57 @@ def cat_mutations(body_parts):
     return [(slot, idx, block) for (slot, idx), block in seen.items()]
 
 
+# Mutation slot -> (data/mutations/<file>.gon, DLL body_parts keys in the slot
+# as (left, right) or a single part). Same slots as BODY_PART_GROUPS.
+MUTATION_SLOTS = {
+    "texture": ("texture", ("texture",)), "body": ("body", ("body",)), "head": ("head", ("head",)),
+    "tail": ("tail", ("tail",)), "mouth": ("mouth", ("mouth",)),
+    "legs": ("legs", ("leg1", "leg2")), "arms": ("legs", ("arm1", "arm2")),
+    "eyes": ("eyes", ("lefteye", "righteye")),
+    "eyebrows": ("eyebrows", ("lefteyebrow", "righteyebrow")),
+    "ears": ("ears", ("leftear", "rightear")),
+}
+
+
+def mutation_info(slot, idx):
+    """Stats, tag and localized description of one mutation in a slot, or
+    None if the slot's .gon file has no such id."""
+    gon_file = MUTATION_SLOTS[slot][0]
+    block = _data()[3].get(gon_file, {}).get(idx)
+    if block is None:
+        return None
+    desc_en, desc_ru = _text(block.get("desc")) if block.get("desc") else ("", "")
+    tag = block.get("tag")
+    other = {k: block[k] for k in ("shield", "divine_shield", "override_move") if k in block}
+    return {"slot": slot, "id": idx, "tag": tag,
+            "birth_defect": tag == "birth_defect" or idx == -2,
+            "stats": _stat_block(block), **({"other": other} if other else {}),
+            "desc": desc_ru, "desc_en": desc_en}
+
+
+def search_mutations(query="", slot=None, stat=None, include_defects=False, limit=30):
+    """Mutations whose description (en/ru) or tag contains `query`,
+    optionally in one slot, optionally only those that raise `stat`.
+    Sorted by the stat bonus when `stat` is given."""
+    q = query.lower()
+    out = []
+    for s in ([slot] if slot else MUTATION_SLOTS):
+        for idx in sorted(_data()[3].get(MUTATION_SLOTS[s][0], {})):
+            if idx < MUTATION_MIN_ID and idx != -2:
+                continue
+            info = mutation_info(s, idx)
+            if info["birth_defect"] and not include_defects:
+                continue
+            if stat and info["stats"].get(stat, 0) <= 0:
+                continue
+            hay = " ".join([info["tag"] or "", info["desc"], info["desc_en"]]).lower()
+            if q in hay:
+                out.append(info)
+    if stat:
+        out.sort(key=lambda m: -m["stats"].get(stat, 0))
+    return out[:limit]
+
+
 def _add_into(acc, mods):
     for stat, v in mods.items():
         acc[stat] = acc.get(stat, 0) + v

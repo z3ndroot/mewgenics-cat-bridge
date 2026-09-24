@@ -28,7 +28,7 @@ A small mod DLL reads the game's memory live and a Python [MCP](https://modelcon
 | Strays & roles | `evaluate_strays`, `breeding_roles` | Whether to adopt the stray waiting outside; which cats the bloodline needs and which are free to risk |
 | Adventures | `suggest_adventure_team` | A party of cats not needed for breeding, with a class (collar) for each |
 | House | `get_rooms`, `suggest_room_setup` | Room stats as shown in-game (Comfort incl. crowding, Stimulation, Evolution, Health, Appeal), furniture per room, what to move where, what to look for in shops |
-| Editing | `set_cat_stat`, `set_cat_passive`, `find_passives`, `set_cat_body_part`, `set_cat_hp` | Change base stats, passives / disorders and body parts (mutations); every edit returns the old value so it can be undone |
+| Editing | `set_cat_stat`, `set_cat_passive`, `find_passives`, `set_cat_body_part`, `add_cat_mutation`, `find_mutations`, `set_cat_hp` | Change base stats, passives / disorders and body parts; search mutations by effect or stat and give one to a cat; every edit returns the old value so it can be undone |
 
 ## Requirements
 

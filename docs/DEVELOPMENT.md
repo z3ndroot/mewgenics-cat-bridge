@@ -202,6 +202,21 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   ("None") restored it. Survives the game's own save + reload (checked
   in-game by the player, 2026-09-25).
   Passive entries in LIST_CATS now carry their `slot`.
+* Mutations by effect (2026-09-25, Python only, no DLL change): MCP
+  `find_mutations` searches data/mutations/*.gon by localized description
+  (`desc` key -> text/combined.csv), tag or stat; mutations have no names of
+  their own (combined.csv only has per-slot names like MUTATION_EAR_NAME).
+  `add_cat_mutation` writes the id into every part of the slot via
+  `SET_PART` (both ears / both arms, or one side) and returns the old
+  indices. Verified in-game 2026-09-25: ears 303 on both ears of a cat ->
+  new ears drawn, STR 6 -> 7 (once per slot, as predicted), knockback
+  effect shown in the cat's info (checked by the player). Survives the
+  game's own save + reload (ears still 303/303 after reloading the save).
+  Tags seen: animal, common (the 400-449 block: +2/-1 stat
+  pairs), bird, extra, melted, birth_defect (-2 and most of 700+).
+  Mutations with only a `passives` block (e.g. Thorns) are assumed to take
+  effect like stat ones, since the game keys everything by sprite index --
+  not yet checked in combat.
 * Debug: `COMPONENT_TYPES [decimal addr]` lists component types per scene
   (and which one is at addr).
 * Debug: `DUMP_COMPONENT <sql_key> <TypeName> [hexlen]` hex-dumps a
@@ -294,8 +309,8 @@ SQLite) is used for validation only; the tool reads live memory.
 * Cats are found through loaded scenes; tested on the house screen. Other
   screens (adventure, map) are untested.
 * One request in flight, one pipe client at a time.
-* Writes are live-memory edits. Stat and passive edits survive the game's
-  own save; body-part edits haven't been save/reload-tested yet.
+* Writes are live-memory edits. Stat, passive and body-part (mutation)
+  edits survive the game's own save + reload; `SET_HP` is untested.
 * No equipment editing, no adding/removing cats, no active-ability editing
   yet (the fields are in `types/glaiel_cat.hpp`; `SET_PASSIVE` shows how
   to write an MSVC string safely).

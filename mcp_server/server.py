@@ -32,7 +32,8 @@ from mcp.server.fastmcp import FastMCP
 import advisor
 import breeding
 import rooms as rooms_mod
-from game_data import EFFECT_NOTES, enrich_cat, furniture_effects, passive_levels, search_passives
+from game_data import (EFFECT_NOTES, MUTATION_SLOTS, STAT_NAMES, enrich_cat, furniture_effects,
+                       mutation_info, passive_levels, search_mutations, search_passives)
 
 PIPE_NAME = r"\\.\pipe\cat_bridge"
 PIPE_TIMEOUT_MS = 5000
@@ -143,7 +144,8 @@ def set_cat_stat(sql_key: int, stat: str, value: int) -> dict:
 @mcp.tool()
 def set_cat_body_part(sql_key: int, part: str, sprite_index: int) -> dict:
     """Change one body part of a cat by sprite index -- this is how mutations
-    are added or removed. The change is visible in-game immediately.
+    are added or removed. The change is visible in-game immediately and
+    persists through the game's own save.
 
     part: texture, body, head, tail, mouth, leg1, leg2, arm1, arm2, lefteye,
     righteye, lefteyebrow, righteyebrow, leftear, rightear.
@@ -154,6 +156,57 @@ def set_cat_body_part(sql_key: int, part: str, sprite_index: int) -> dict:
     bonus is not doubled. Arms and legs are separate slots.
     The response's `previous` is the old index, to undo the change."""
     return send_cat_command(f"SET_PART {sql_key} {part} {sprite_index}")
+
+
+@mcp.tool()
+def find_mutations(query: str = "", slot: str | None = None, stat: str | None = None,
+                   include_birth_defects: bool = False, limit: int = 30) -> dict:
+    """Search body-part mutations in the game data. Mutations have no names
+    of their own, only stats, a tag (animal, common, bird, extra, melted,
+    birth_defect) and, for the ones with a special effect, a description:
+    query matches the description (Russian or English) or the tag, e.g.
+    "кровотечение", "regeneration", "bird".
+    slot: texture (fur), body, head, tail, mouth, legs, arms, eyes,
+    eyebrows, ears. stat (str, dex, con, int, spd, cha, lck): only
+    mutations that raise it, best first. Birth defects are left out unless
+    include_birth_defects. Returns slot + id to pass to add_cat_mutation."""
+    if slot and slot not in MUTATION_SLOTS:
+        return {"ok": False, "error": f"slot must be one of {list(MUTATION_SLOTS)}"}
+    if stat and stat not in STAT_NAMES:
+        return {"ok": False, "error": f"stat must be one of {list(STAT_NAMES)}"}
+    return {"ok": True, "results": search_mutations(query, slot, stat, include_birth_defects, limit)}
+
+
+@mcp.tool()
+def add_cat_mutation(sql_key: int, slot: str, mutation_id: int, side: str = "both") -> dict:
+    """Give a cat a body-part mutation (from find_mutations) by writing its
+    id into the slot's body part(s) through set_cat_body_part; visible
+    in-game immediately and persists through the game's save. Replaces
+    whatever the slot had.
+    slot: texture, body, head, tail, mouth, legs, arms, eyes, eyebrows,
+    ears. side (paired slots only): both (default -- the bonus counts once
+    per slot anyway, this just makes it look symmetric), left or right.
+    The response's `previous` maps each changed part to its old sprite
+    index: pass those to set_cat_body_part to undo."""
+    if slot not in MUTATION_SLOTS:
+        return {"ok": False, "error": f"slot must be one of {list(MUTATION_SLOTS)}"}
+    info = mutation_info(slot, mutation_id)
+    if info is None:
+        return {"ok": False, "error": f"no mutation {mutation_id} in slot '{slot}' (use find_mutations)"}
+    parts = MUTATION_SLOTS[slot][1]
+    if len(parts) == 2 and side != "both":
+        if side not in ("left", "right"):
+            return {"ok": False, "error": "side must be both, left or right"}
+        parts = (parts[0 if side == "left" else 1],)
+    previous, resp = {}, {}
+    for part in parts:
+        resp = send_cat_command(f"SET_PART {sql_key} {part} {mutation_id}")
+        if not resp.get("ok"):
+            return dict(resp, previous=previous)
+        previous[part] = resp["previous"]
+    cat = resp.get("cat", {})
+    return {"ok": True, "mutation": info, "previous": previous,
+            "cat": {k: cat.get(k) for k in ("sql_key", "name", "mutations", "stats")}}
 
 
 PASSIVE_SLOTS = ("passive1", "passive2", "disorder1", "disorder2")
