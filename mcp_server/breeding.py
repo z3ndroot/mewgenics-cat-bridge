@@ -16,16 +16,17 @@ Facts this relies on (verified 2026-09-24, v1.1.21239):
 From the game's tips / a community guide, not verified by us:
 * Stimulation in the room makes kittens take the better parent's stat and
   pass mutations/abilities more often; furniture effects can bias it too.
-* Gay cats (high `sexuality`) only breed with "?" cats. The 0.5 cut-off is
-  a guess: in the test save sexuality is either <= 0.10 or >= 0.93.
+* Gay cats only breed with "?" cats. Which cats are gay is the game's own
+  rule for its UI icon (sexuality > 0.9; < 0.1 straight, else bi -- read
+  from Mewgenics.exe, see game_data.orientation_label). Bi cats are assumed
+  to breed like straight ones (unverified; none seen in the test saves).
 * Inbreeding raises the chance of birth defects / bad mutations / disorders.
 """
 
-from game_data import ABILITY_INHERITANCE_OBSERVED
+from game_data import ABILITY_INHERITANCE_OBSERVED, inbreeding_tier, orientation_label
 
 STAT_NAMES = ("str", "dex", "con", "int", "spd", "cha", "lck")
 SEX_NAMES = {0: "male", 1: "female", 2: "either (?)"}
-GAY_SEXUALITY = 0.5
 MAX_BASE_STAT = 7
 
 # HYPOTHESIS (from https://github.com/jph6366/mewgenics-mcp; not
@@ -164,7 +165,13 @@ def _generations(base, g):
 
 
 def inbreeding_level(coi):
-    """Rough risk tier (thresholds are ours; the COI itself is exact)."""
+    """The game's label for this COI (as on the cat info tab), plus a rough
+    risk note (the risk wording and its thresholds are ours)."""
+    tier, (en, ru) = inbreeding_tier(coi)
+    return f"{ru} / {en} (game tier {tier}/4); {_inbreeding_risk(coi)}"
+
+
+def _inbreeding_risk(coi):
     if coi <= 0:
         return "none"
     if coi <= 0.07:
@@ -179,7 +186,7 @@ def inbreeding_level(coi):
 # ---------------------------------------------------------------- pairs
 
 def orientation(cat):
-    return "gay" if cat.get("sexuality", 0.0) > GAY_SEXUALITY else "straight"
+    return orientation_label(cat.get("sexuality", 0.0))
 
 
 def sire_dam(cat_x, cat_y):

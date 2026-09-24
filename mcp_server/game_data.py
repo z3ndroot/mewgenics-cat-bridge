@@ -469,6 +469,60 @@ def _add_into(acc, mods):
         acc[stat] = acc.get(stat, 0) + v
 
 
+# How the cat info tab turns CatData doubles into labels. Thresholds read
+# from Mewgenics.exe 1.1.21239 (the code that picks the HOUSE_CAT_INFO_*
+# text keys, RVA ~0xe3ee0-0xe4940; strict comparisons, so exactly 0.3 is
+# "mid"). Libido/aggression: < 0.3 low, > 0.7 high. Inbreeding (coi):
+# > 0.1 / 0.25 / 0.5 / 0.8. Sexuality: < 0.1 straight, > 0.9 gay, else bi
+# (shown only as an icon).
+TEMPERAMENT_LEVELS = {
+    "libido": ((0.3, "low"), (0.7, "high"), "mid"),
+    "aggression": ((0.3, "low"), (0.7, "high"), "mid"),
+}
+TEMPERAMENT_TEXT = {
+    ("libido", "low"): "HOUSE_CAT_INFO_LOWLIBIDO", ("libido", "mid"): "HOUSE_CAT_INFO_MIDLIBIDO",
+    ("libido", "high"): "HOUSE_CAT_INFO_HIGHLIBIDO",
+    ("aggression", "low"): "HOUSE_CAT_INFO_LOWAGGRO", ("aggression", "mid"): "HOUSE_CAT_INFO_MIDAGGRO",
+    ("aggression", "high"): "HOUSE_CAT_INFO_HIGHAGGRO",
+}
+INBREEDING_TIERS = ((0.8, 4), (0.5, 3), (0.25, 2), (0.1, 1))  # coi > x -> HOUSE_CAT_INFO_INBRED<n>
+
+
+def _label(key):
+    try:
+        return _text(key)
+    except OSError:
+        return key, key
+
+
+def inbreeding_tier(coi):
+    """The game's inbreeding tier 0-4 for a COI and its (en, ru) label."""
+    tier = next((t for cut, t in INBREEDING_TIERS if coi > cut), 0)
+    return tier, _label(f"HOUSE_CAT_INFO_INBRED{tier}")
+
+
+def orientation_label(sexuality):
+    return "straight" if sexuality < 0.1 else "gay" if sexuality > 0.9 else "bi"
+
+
+def cat_temperament(cat):
+    """Libido, aggression, inbreeding and orientation as the game labels them."""
+    out = {}
+    for field, (lo, hi, default) in TEMPERAMENT_LEVELS.items():
+        v = cat.get(field)
+        if v is None:
+            continue
+        level = lo[1] if v < lo[0] else hi[1] if v > hi[0] else default
+        en, ru = _label(TEMPERAMENT_TEXT[(field, level)])
+        out[field] = {"value": round(v, 3), "level": level, "label": ru, "label_en": en}
+    if cat.get("coi") is not None:
+        tier, (en, ru) = inbreeding_tier(cat["coi"])
+        out["inbreeding"] = {"coi": round(cat["coi"], 4), "tier": tier, "label": ru, "label_en": en}
+    if cat.get("sexuality") is not None:
+        out["orientation"] = orientation_label(cat["sexuality"])
+    return out
+
+
 def enrich_cat(cat):
     """Add displayed `stats` (plus class/item/passive parts) to a cat dict from the DLL."""
     parts = [cat.get("stats_base", {}), cat.get("stats_levelling", {}), cat.get("stats_injuries", {})]
@@ -493,6 +547,7 @@ def enrich_cat(cat):
     except OSError as e:
         cat["stats_note"] = f"game data unavailable ({e}); stats exclude class/item/passive bonuses"
     cat["stats"] = {s: sum(p.get(s, 0) for p in parts) for s in STAT_NAMES}
+    cat["temperament"] = cat_temperament(cat)
     return cat
 
 

@@ -217,6 +217,19 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   Mutations with only a `passives` block (e.g. Thorns) are assumed to take
   effect like stat ones, since the game keys everything by sprite index --
   not yet checked in combat.
+* Cat info tab labels (2026-09-25), read from Mewgenics.exe 1.1.21239:
+  the function around RVA 0xe3ee0-0xe4940 (found via code refs to the
+  HOUSE_CAT_INFO_* text keys) compares CatData doubles to constants and
+  picks the label. libido (+0xbb8) and aggression (+0xbe8): < 0.3 low,
+  > 0.7 high, else mid. coi (+0xc50): > 0.1 / 0.25 / 0.5 / 0.8 ->
+  INBRED1..4 (Лёгкое / Среднее / Высокое / Королевское), else INBRED0.
+  sexuality (+0xbc0): < 0.1 straight, > 0.9 gay, else bi (icon only).
+  Offsets match `types/glaiel_cat.hpp`. Checked against the UI: cat 226
+  (libido 0.534, aggression 0.367, coi 0) = Среднее либидо / Средняя
+  агрессия / Без вырождения. `enrich_cat` adds `temperament`;
+  breeding.orientation and inbreeding_level now use these thresholds
+  (the old 0.5 gay cut-off was a guess). Whether bi cats breed with
+  anyone, and what libido/aggression actually do, is unverified.
 * Debug: `COMPONENT_TYPES [decimal addr]` lists component types per scene
   (and which one is at addr).
 * Debug: `DUMP_COMPONENT <sql_key> <TypeName> [hexlen]` hex-dumps a

@@ -116,7 +116,12 @@ def list_cats(include_all: bool = False) -> dict:
     `stats` is the total the game displays: stats_base + stats_levelling +
     stats_injuries + stats_class (collar) + stats_items + stats_passives +
     stats_mutations (body-part mutations, listed in `mutations`). An hp of
-    1073741823 (0x3FFFFFFF) is a game sentinel, apparently "not set / full"."""
+    1073741823 (0x3FFFFFFF) is a game sentinel, apparently "not set / full".
+
+    `temperament` = libido, aggression and inbreeding with the labels the
+    cat info tab shows (e.g. "Высокая агрессия", "Лёгкое вырождение"; the
+    thresholds are the game's own, read from its code), and orientation
+    (straight / bi / gay -- gay cats only breed with "?" cats)."""
     resp = send_cat_command("LIST_CATS")
     if resp.get("ok") and not include_all:
         resp["cats"] = [c for c in resp["cats"] if c["in_house"]]
