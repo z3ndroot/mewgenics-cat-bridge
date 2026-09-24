@@ -363,49 +363,6 @@ std::string handle_request(std::string_view line) {
         return w.str();
     }
 
-    // SET_ROOM_EFFECT <room> <effect> <value>: overwrite one summed room
-    // effect (e.g. Floor1_Small Stimulation 200). Only effects the room
-    // already has (from its furniture) can be changed -- no allocation. The
-    // game recomputes the totals when furniture changes, which undoes it.
-    // For experiments: the breeding code reads these totals (Comfort via
-    // the room's effect list, see docs/DEVELOPMENT.md).
-    if(cmd == "SET_ROOM_EFFECT" && tokens.size() >= 4) {
-        double value = 0.0;
-        std::from_chars(tokens[3].data(), tokens[3].data() + tokens[3].size(), value);
-        HouseRoom *room = nullptr;
-        MewDirector *p_mewdirector = get_p_mewdirector_singleton();
-        if(p_mewdirector != nullptr && p_mewdirector->director != nullptr) {
-            for(auto p_scene : p_mewdirector->director->scenes) {
-                if(p_scene == nullptr || p_scene->ComponentLists == nullptr) {
-                    continue;
-                }
-                for(auto p_component : *p_scene->ComponentLists) {
-                    if(get_type_name(p_component) == "FurnitureGrid") {
-                        auto r = static_cast<HouseRoom *>(p_component);
-                        if(r->name.as_native_string_view() == tokens[1]) {
-                            room = r;
-                        }
-                    }
-                }
-            }
-        }
-        if(room == nullptr) {
-            w.begin_object().kv("ok", false).kv("error", std::string_view("room not found")).end_object();
-            return w.str();
-        }
-        for(RoomEffect &e : room->effects) {
-            if(e.name.as_native_string_view() == tokens[2]) {
-                double previous = e.value;
-                e.value = value;
-                w.begin_object().kv("ok", true).kv("previous", previous).kv("value", e.value).end_object();
-                return w.str();
-            }
-        }
-        w.begin_object().kv("ok", false)
-            .kv("error", std::string_view("the room has no such effect (only existing ones can be changed)")).end_object();
-        return w.str();
-    }
-
     // SET_FURNITURE_EFFECT <furniture type> <effect> <value>: change a number
     // in the loaded data/furniture_effects.gon (e.g. object_electronics_monitor
     // Stimulation 188). Every room with that furniture picks it up at once;

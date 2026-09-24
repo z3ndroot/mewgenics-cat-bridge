@@ -1,11 +1,13 @@
 """
-Run the birth log on its own (without Claude Desktop): polls the game every
-10 s and appends a record to the birth log each in-game night.
+Developer tool: record every in-game night to the birth log (see
+mcp_server/birth_log.py) to check breeding hypotheses against real births.
+Polls the game every 10 s; stop with Ctrl+C.
 
-    python tools\\birth_logger.py
+    python tools\birth_logger.py            # log (optionally: poll seconds)
+    python tools\birth_logger.py --report   # analyse what's logged
 
-The MCP server does the same in the background while it runs; running both
-is harmless (a night is only written once). Stop with Ctrl+C.
+The MCP server can log too if MEWGENICS_BIRTH_LOG=on is set; running both is
+harmless (a night is only written once).
 """
 
 import sys
@@ -18,6 +20,11 @@ import server  # noqa: E402
 
 
 def main():
+    if "--report" in sys.argv:
+        import json
+        report = birth_log.analyze(birth_log.read_log(server.BIRTH_LOGGER.path))
+        print(json.dumps(report, ensure_ascii=False, indent=1))
+        return
     logger = server.BIRTH_LOGGER
     print(f"birth log: {logger.path}")
 
@@ -27,7 +34,8 @@ def main():
               + (" (gap: missed a day)" if rec.get("gap") else ""))
 
     logger.on_event = lambda e: print(f"  [{e.get('day', '')}] {e['what']}", flush=True)
-    interval = float(sys.argv[1]) if len(sys.argv) > 1 else birth_log.POLL_SECONDS
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    interval = float(args[0]) if args else birth_log.POLL_SECONDS
     try:
         birth_log.run_poller(server.birth_log_snapshot, logger, interval=interval, on_record=on_record)
     except KeyboardInterrupt:

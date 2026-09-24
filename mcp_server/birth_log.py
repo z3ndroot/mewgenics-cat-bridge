@@ -12,8 +12,9 @@ appeared in the pedigree overnight (parents, base stats, body parts,
 innate abilities). One JSON object per line in LOG_PATH.
 
 analyze() compares the records with:
-* the Stimulation hypothesis (breeding.STIMULATION_TIERS: how often a
-  kitten takes the better parent's base stat),
+* stat inheritance by room Stimulation (how often a kitten takes the
+  better parent's base stat; the old 32 / 95 / 196 tier hypothesis was
+  refuted with this log),
 * the mating model read from the game's code (breeding.mating_outlook:
   chance that a co-housed pair has kittens, litter size from fertility).
 """
@@ -27,8 +28,9 @@ from pathlib import Path
 
 import breeding
 
-LOG_PATH = Path(os.environ.get("MEWGENICS_BIRTH_LOG")
-                or Path(os.environ.get("LOCALAPPDATA", Path.home())) / "mewgenics-cat-bridge" / "birth_log.jsonl")
+_env = os.environ.get("MEWGENICS_BIRTH_LOG", "")
+LOG_PATH = Path(_env if _env.lower() not in ("", "on", "off")
+                else Path(os.environ.get("LOCALAPPDATA", Path.home())) / "mewgenics-cat-bridge" / "birth_log.jsonl")
 POLL_SECONDS = 10
 
 CAT_FIELDS = ("sql_key", "name", "sex", "room", "stats_base", "libido", "sexuality", "fertility", "aggression",
@@ -251,6 +253,7 @@ def analyze(records):
     births = [(r, b) for r in nights for b in r["births"]]
 
     # 1. Stimulation: per stat where the parents differ, did the kitten take the better value?
+    tiers = (0, 32, 95, 196)  # the refuted hypothesis' bands, kept for comparability
     by_tier = {}
     for r, b in births:
         cats = r["cats"]
@@ -258,7 +261,7 @@ def analyze(records):
         if not (sire and dam and kit and b.get("parents_room") in r["rooms"]):
             continue
         stim = r["rooms"][b["parents_room"]]["Stimulation"]
-        tier = max(t for t, _ in breeding.STIMULATION_TIERS if stim >= t) if stim >= 0 else 0
+        tier = max((t for t in tiers if stim >= t), default=0)
         entry = by_tier.setdefault(tier, {"better": 0, "worse": 0, "neither": 0, "stimulation_values": set()})
         entry["stimulation_values"].add(stim)
         for s in breeding.STAT_NAMES:
@@ -273,7 +276,7 @@ def analyze(records):
                             "stats_compared": n, "took_better": e["better"], "took_worse": e["worse"],
                             "neither_parent": e["neither"],
                             "observed_p_better": round(e["better"] / n, 3) if n else None,
-                            "hypothesis_p_better": breeding.p_better_stat(tier)})
+                            "model_p_better": breeding.P_BETTER_STAT})
 
     # 2. Mating: predicted chance per co-housed compatible pair vs whether it had kittens that night
     bins, litters = {}, []

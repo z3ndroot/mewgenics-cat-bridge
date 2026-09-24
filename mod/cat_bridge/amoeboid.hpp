@@ -20,7 +20,7 @@ inline constexpr char MOD_AUTHOR[] = "z3ndroot";
 inline constexpr char MOD_NAME[] = "Cat Bridge (MCP)";
 inline constexpr char MOD_IDENTIFIER[] = "z3ndroot.cat_bridge_mcp";
 inline constexpr char MOD_URL[] = "https://github.com/z3ndroot/mewgenics-cat-bridge";
-inline constexpr char MOD_VERSION[] = "0.1.0";
+inline constexpr char MOD_VERSION[] = "0.2.0";
 
 // These addresses were extracted from Mewgenics.exe by the upstream
 // randomize_item_picks project. They are reused here because we need the

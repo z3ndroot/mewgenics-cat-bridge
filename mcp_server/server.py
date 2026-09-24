@@ -339,14 +339,14 @@ def get_family(sql_key: int, generations: int = 3) -> dict:
 
 
 @mcp.tool()
-def evaluate_pair(cat_a: int, cat_b: int, stimulation: float | None = None) -> dict:
+def evaluate_pair(cat_a: int, cat_b: int) -> dict:
     """Assess breeding two cats: can they breed at all (sex: sire = father,
     dam = mother, "?" cats can be either; gay cats only breed with "?" cats),
     how they're related, the kitten's coefficient of inbreeding (kitten_coi:
     0.25 = siblings/parent-child, 0.125 = half siblings, 0.0625 = cousins)
     with the game's own label (Без / Лёгкое / Среднее / Высокое /
     Королевское вырождение), which base stats the kitten can inherit (each stat
-    from one parent: `max` needs high Stimulation, `mean` = coin flip),
+    from one parent, about a coin flip which one: `max` is the best case),
     which mutations each parent can pass on per body-part slot, love/hate,
     and the room they share (they only breed together if housed together;
     Comfort <= 0 means fights instead of kittens).
@@ -357,16 +357,17 @@ def evaluate_pair(cat_a: int, cat_b: int, stimulation: float | None = None) -> d
     raised if B is A's lover and lowered if A loves another cat. When they
     try, both must agree: each with chance attraction x sqrt(1 + 0.1 x room
     Comfort); `chance_both_agree` is that product. Litter: p = product of
-    the two fertilities -> one kitten with chance p, twins with p - 1.
+    the two fertilities -> one kitten with chance p, twins with p - 1
+    (checked on 42 real matings: 1.17 kittens vs 1.20 predicted).
     `fight_tendency` is the game's relative score (aggression + hate,
-    reduced by attraction). How often cats pick each other as partners
-    isn't decoded, so this is a per-attempt chance, not per night.
+    reduced by attraction). A pair alone in a room gets about two attempts
+    a night (chance 1 - (1 - q)^2, consistent with 12 observed nights); in
+    a shared room each cat picks one partner per night (how isn't decoded),
+    so the real per-night chance there is lower.
 
-    Stimulation model (HYPOTHESIS from another project, not verified): per
-    stat the kitten takes the better parent's value with p = 0.5 below 32
-    Stimulation, 0.55 from 32, 0.7 from 95, 1.0 from 196. `stimulation`
-    overrides the value used (default: the pair's shared room, else the
-    house's best room) -- use it for what-ifs like "after buying furniture"."""
+    Stat inheritance: measured with a birth log, the kitten took the better
+    parent's value 55% of the time and room Stimulation (0 to 200) made no
+    visible difference -- so no furniture makes better kittens certain."""
     ped, cats, err = _load_breeding_state()
     if err:
         return err
@@ -374,14 +375,14 @@ def evaluate_pair(cat_a: int, cat_b: int, stimulation: float | None = None) -> d
     if missing:
         return {"ok": False, "error": f"cats not loaded (must be in the house): {missing}"}
     rooms, err = _load_rooms()
-    return dict(breeding.evaluate_pair(ped, cats[cat_a], cats[cat_b], rooms, stimulation), ok=True)
+    return dict(breeding.evaluate_pair(ped, cats[cat_a], cats[cat_b], rooms), ok=True)
 
 
 
 @mcp.tool()
 def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kitten_coi: float = 0.0625,
                            top: int = 10, include_impossible: bool = False,
-                           stimulation: float | None = None, min_mating_chance: float = 0.02) -> dict:
+                           min_mating_chance: float = 0.02) -> dict:
     """Rank breeding pairs among the living cats in the house.
 
     stat_weights: how much each base stat matters, e.g. {"str": 2, "con": 1}
@@ -390,12 +391,11 @@ def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kit
     the kitten gets each body-part slot from one parent).
     max_kitten_coi: skip pairs whose kitten would be more inbred than this
     (0 = only unrelated pairs, 0.0625 = up to cousins).
-    Sorted by the expected kitten at the pair's Stimulation, then by the
-    best possible kitten (each stat from the better parent).
+    Sorted by the expected kitten (each stat about a coin flip between the
+    parents), then by the best possible kitten.
     Pairs that can't breed (same sex, or a gay cat without a "?" partner)
     are skipped unless include_impossible=True. Each result says whether
-    the two share a room -- they must, to breed. `stimulation` overrides the
-    breeding room Stimulation used (see evaluate_pair for the model).
+    the two share a room -- they must, to breed.
     min_mating_chance: skip pairs that would almost never agree to mate
     (chance_both_agree below this at their room's Comfort, or the house's
     best Comfort if they're apart -- see evaluate_pair's `mating`)."""
@@ -405,7 +405,7 @@ def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kit
     rooms, _ = _load_rooms()
     pool = _breeding_pool(cats)
     pairs = breeding.suggest_pairs(ped, pool, stat_weights, max_kitten_coi, top, include_impossible, rooms,
-                                   stimulation, min_mating_chance)
+                                   min_mating_chance)
     return {"ok": True, "pairs_considered_from": len(pool), "pairs": pairs,
             "strays_included": [c["name"] for c in pool if c["outside"]]}
 
@@ -413,27 +413,23 @@ def suggest_breeding_pairs(stat_weights: dict[str, float] | None = None, max_kit
 
 @mcp.tool()
 def plan_breeding(stat_weights: dict[str, float] | None = None, generations: int = 3,
-                  max_kitten_coi: float = 0.0625, stimulation: float | None = None) -> dict:
+                  max_kitten_coi: float = 0.0625) -> dict:
     """Plan several generations of breeding towards 7s (the max base stat)
     in the stats you care about (stat_weights as in suggest_breeding_pairs;
     default all stats). Greedy: each generation picks the best pair, and
     from generation 2 on one parent is the previous planned kitten, so the
     line keeps improving without passing max_kitten_coi. Each step is the
     best case (every stat from the better parent) plus the chance of
-    actually getting it and how many kittens that takes on average at the
-    breeding room's Stimulation, with a what-if for higher Stimulation.
-    Tells you which sex each planned kitten needs to be, and which stats no
-    cat in the house can supply (bring in a stray that has them).
-    `stimulation` defaults to the house's best room (see evaluate_pair for
-    the Stimulation model, a hypothesis)."""
+    actually getting it and how many kittens that takes on average (each
+    stat is about a coin flip between the parents -- measured; Stimulation
+    doesn't change that). Tells you which sex each planned kitten needs to
+    be, and which stats no cat in the house can supply (bring in a stray
+    that has them)."""
     ped, cats, err = _load_breeding_state()
     if err:
         return err
-    if stimulation is None:
-        rooms, _ = _load_rooms()
-        stimulation, _ = breeding.best_room_stimulation(rooms)
-    return dict(breeding.plan_generations(ped, _breeding_pool(cats), stat_weights, generations, max_kitten_coi,
-                                          stimulation=stimulation), ok=True)
+    return dict(breeding.plan_generations(ped, _breeding_pool(cats), stat_weights, generations, max_kitten_coi),
+                ok=True)
 
 
 
@@ -604,38 +600,11 @@ def birth_log_snapshot():
 BIRTH_LOGGER = birth_log.BirthLogger()
 
 
-@mcp.tool()
-def birth_log_report(show_last_nights: int = 0) -> dict:
-    """Check the breeding hypotheses against real births. While this server
-    runs (and the game is on the house screen) a background logger records
-    every night: who lived in which room, room Comfort/Stimulation, the
-    predicted mating chance of every co-housed pair, and which kittens were
-    born (parents, base stats, body parts, innate ability).
-
-    Returns the logger status and an analysis of everything logged so far:
-    stimulation_check -- per room-Stimulation tier, how often a kitten took
-    the better parent's base stat (stats where the parents differ) vs the
-    hypothesis (0.5 / 0.55 from 32 / 0.7 from 95 / 1.0 from 196);
-    mating_check -- co-housed compatible pairs binned by the predicted
-    per-attempt chance (evaluate_pair's `mating`) vs how often they really
-    had kittens that night; litters -- kittens per mating vs the fertility
-    prediction. Needs many nights before the numbers mean anything.
-    show_last_nights: also return that many recent nights in short form."""
-    records = birth_log.read_log(BIRTH_LOGGER.path)
-    out = {"ok": True, "status": BIRTH_LOGGER.status(), "analysis": birth_log.analyze(records)}
-    if show_last_nights > 0:
-        out["recent_nights"] = [
-            {"day": r["day_after"], "gap": r.get("gap", False),
-             "births": [{"kitten": b["kitten"], "name": (b.get("kitten_cat") or {}).get("name"),
-                         "sire": b["sire"], "dam": b["dam"], "room": b["parents_room"]} for b in r["births"]],
-             "rooms": {n: {k: v for k, v in room.items() if k != "cats"} | {"cats": len(room["cats"])}
-                       for n, room in r["rooms"].items()}}
-            for r in records[-show_last_nights:] if r.get("type") == "night"]
-    return out
-
-
 def start_birth_log():
-    if os.environ.get("MEWGENICS_BIRTH_LOG", "").lower() == "off":
+    """Developer tool, off by default: set MEWGENICS_BIRTH_LOG=on (or a log
+    path) to record every night while the server runs. See
+    tools/birth_logger.py."""
+    if os.environ.get("MEWGENICS_BIRTH_LOG", "off").lower() == "off":
         return None
     return birth_log.start_background(birth_log_snapshot, BIRTH_LOGGER)
 

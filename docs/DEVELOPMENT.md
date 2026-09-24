@@ -85,8 +85,7 @@ Read: `LIST_CATS`, `GET_CAT <key>`, `PEDIGREE`, `ROOMS`, `DAY` (day, food,
 gold; LIST_CATS and PEDIGREE also carry `day`).
 Write: `SET_STAT <key> <stat> <value>`, `SET_HP <key> <value>`,
 `SET_PART <key> <part> <sprite_idx>`, `SET_FOOD <value>`,
-`SET_FURNITURE_EFFECT <type> <effect> <value>`, `SET_ROOM_EFFECT <room> <effect> <value>`
-(the latter is useless: see below),
+`SET_FURNITURE_EFFECT <type> <effect> <value>`,
 `SET_PASSIVE <key> <passive1|passive2|disorder1|disorder2> <name> <level>`.
 Debug: `DUMP_CAT <key>`, `CAT_SOURCES`, `COMPONENT_TYPES [addr]`,
 `DUMP_COMPONENT <key> <Type> [hexlen]` / `<n> #<Type>` / `<addr> @`.
@@ -272,8 +271,18 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   breeding loop reads [MewDirector singleton (RVA 0x13dac30) + 0x580] (day 0
   forces mating). Live value 97 = `current_day` 97 in a copy of the save.
   Goes up by one per in-game night (97 -> 98 observed live, 2026-09-25).
+* Stimulation 200 test (days 112-114, Floor1_Small raised to 200 with
+  SET_FURNITURE_EFFECT, see below): 10 stat comparisons, the kitten took
+  the better value 7 times and the WORSE one 3 times (e.g. kitten
+  Швайгерт, 2 of 3 differing stats from the worse parent). So "always the
+  better stat at >= 196" is false. All data together, by room
+  Stimulation 0 / 4 / 13 / 200: 67% (n 30) / 51% (77) / 52% (82) / 70% (10);
+  overall 109 / 199 = 55%. breeding.py now models each stat as a coin
+  flip (P_BETTER_STAT = 0.5) and the tiers are gone. Caveat: in theory
+  inheritance could read Stimulation from somewhere other than the room
+  totals, but mating reads Comfort from those same totals.
 * Room effect totals (FurnitureGrid + 0x140) are recomputed from the
-  furniture continuously: `SET_ROOM_EFFECT` changed Floor1_Small
+  furniture continuously: writing the total (a since-removed command) changed Floor1_Small
   Stimulation 13 -> 200 and the next read was 13 again. They are computed
   from data/furniture_effects.gon as loaded in memory: a GON tree at
   SpawnDatabase + 0xd48 (loader ~RVA 0x7a79cb copies it there). GON node
@@ -313,7 +322,8 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   and the night clamped it: 600 -> 140 - 20 cats = 120. So food above the
   capacity is lost overnight; where the capacity lives isn't found yet.
   MCP `get_house_status` reports day, food, gold and nights of food left.
-* Birth log (`mcp_server/birth_log.py`, MCP `birth_log_report`, standalone
+* Birth log (`mcp_server/birth_log.py`; developer tool, off in the MCP
+  server unless MEWGENICS_BIRTH_LOG=on; standalone
   `tools/birth_logger.py`): polls PEDIGREE + LIST_CATS + ROOMS every 10 s
   and writes one JSONL record per night to
   %LOCALAPPDATA%\mewgenics-cat-bridgeirth_log.jsonl (MEWGENICS_BIRTH_LOG

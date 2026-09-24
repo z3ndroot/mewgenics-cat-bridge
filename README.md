@@ -25,8 +25,7 @@ A small mod DLL reads the game's memory live and a Python [MCP](https://modelcon
 | Cats | `list_cats`, `get_cat` | Stats exactly as shown in-game, split into base (heritable) and bonus parts (class, items, passives, mutations, injuries); abilities and passives with in-game names (English and Russian); mutations; room; the daily stray |
 | Family | `get_family` | Parents, ancestors, siblings, children and inbreeding coefficient for every cat the save has ever had |
 | Breeding | `evaluate_pair`, `suggest_breeding_pairs`, `plan_breeding` | Kinship / kitten COI, sex and orientation compatibility, which stats, mutations and abilities a kitten can inherit and how likely, multi-generation plans |
-| Household | `get_house_status`, `set_house_food` | Current day, food and gold, how many nights the food lasts; set the food stock |
-| Birth log | `birth_log_report` | Records every in-game night in the background (who lived where, room stats, predicted mating chances, kittens born) and checks the breeding hypotheses against real births |
+| Household | `get_house_status`, `set_house_food`, `set_furniture_effect` | Current day, food and gold, how many nights the food lasts; set the food stock; (experimental) change a furniture's effect values until the game restarts |
 | Strays & roles | `evaluate_strays`, `breeding_roles` | Whether to adopt the stray waiting outside; which cats the bloodline needs and which are free to risk |
 | Adventures | `suggest_adventure_team` | A party of cats not needed for breeding, with a class (collar) for each |
 | House | `get_rooms`, `suggest_room_setup` | Room stats as shown in-game (Comfort incl. crowding, Stimulation, Evolution, Health, Appeal), furniture per room, what to move where, what to look for in shops |
@@ -71,8 +70,6 @@ A small mod DLL reads the game's memory live and a Python [MCP](https://modelcon
 2. Double-click **`inject.bat`**. It should say `injected ... into pid ...`.
 3. Talk to Claude.
 
-While Claude Desktop is open, the server also keeps a **birth log** in the background (`%LOCALAPPDATA%\mewgenics-cat-bridgeirth_log.jsonl`); ask Claude for `birth_log_report` after some in-game nights. To log without Claude Desktop, run `python toolsirth_logger.py`; set `MEWGENICS_BIRTH_LOG=off` to disable it.
-
 The mod stays loaded until you close the game; run `inject.bat` again after each game start. `eject.bat` unloads it without closing the game.
 
 The game folder is found automatically through Steam. If yours isn't found, set the environment variable `MEWGENICS_DIR` to the folder that contains `Mewgenics.exe`.
@@ -109,8 +106,9 @@ The DLL hooks the game's per-frame update and answers one command per frame on t
 
 - **Verified in-game:** displayed stat formula, heritable (base) stats, body-part mutations and how they stack, room Comfort with crowding penalty, pedigree and inbreeding coefficient (matches the game on every cat), who lives in the house vs. the stray, stat / passive / body-part editing.
 - **Measured on a real save:** ability inheritance (≈32% a parent's innate ability, ≈2% a learned one, ≈66% random).
-- **Read from the game's code:** the cat info labels (libido, aggression, inbreeding, orientation; checked in-game) and the mating formula (libido, orientation, partner's charisma, room Comfort, fertility) — the birth log is there to check it on real nights.
-- **Hypothesis:** how Stimulation changes the odds of inheriting the better stat (thresholds 32 / 95 / 196 from [another project](https://github.com/jph6366/mewgenics-mcp)) — the tools say so when they use it.
+- **Read from the game's code:** the cat info labels (libido, aggression, inbreeding, orientation; checked in-game) and the mating formula (libido, orientation, partner's charisma, room Comfort, fertility).
+- **Checked on real births** (17 in-game nights, 60 kittens, logged with `tools/birth_logger.py`): litter size from fertility matches the game's formula; a pair alone in a room breeds about as often as the formula says; which parent a kitten's stat comes from is about a coin flip (55% the better one) at any Stimulation from 0 to 200 — the popular "Stimulation 32 / 95 / 196" tiers did not hold up.
+- **Still open:** how a cat picks its partner for the night in a shared room, so mating chances there are an upper bound.
 
 ## Building from source
 
