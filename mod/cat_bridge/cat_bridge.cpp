@@ -59,6 +59,14 @@ int64_t current_day() {
     return *reinterpret_cast<const int64_t *>(reinterpret_cast<const uint8_t *>(p_mewdirector) + 0x580);
 }
 
+// House food and gold: two int32 at HouseInventory + 0xb0 / + 0xb4 (save
+// properties "house_food" / "house_gold"). Found in Mewgenics.exe 1.1.21239:
+// the house loader (~RVA 0x20680a) reads "house_food" (default 25) into
+// [obj + 0xb0] and the next property into [obj + 0xb4]; the saver writes them
+// back from there. Live values matched the save (gold 33) and food dropped by
+// one per house cat overnight (97 -> 78 with 19 cats).
+int32_t *house_money();
+
 std::string get_type_name(Component *component) {
     MsvcReleaseModeXString type_name = {};
     component->vtable->GetObjectTypeSTR(component, &type_name);
@@ -126,6 +134,14 @@ Component *find_component(std::string_view type_name) {
         }
     }
     return nullptr;
+}
+
+int32_t *house_money() {
+    Component *inv = find_component("HouseInventory");
+    if(inv == nullptr) {
+        return nullptr;
+    }
+    return reinterpret_cast<int32_t *>(reinterpret_cast<uint8_t *>(inv) + 0xb0);
 }
 
 std::unordered_map<int64_t, FoundCat> collect_all_cats() {
@@ -336,8 +352,32 @@ std::string handle_request(std::string_view line) {
 
     std::string_view cmd = tokens[0];
 
+    // DAY: the day counter plus the house's food and gold.
     if(cmd == "DAY") {
-        w.begin_object().kv("ok", true).kv("day", current_day()).end_object();
+        w.begin_object().kv("ok", true).kv("day", current_day());
+        if(int32_t *money = house_money()) {
+            w.kv("food", money[0]).kv("gold", money[1]);
+        }
+        w.end_object();
+        return w.str();
+    }
+
+    // SET_FOOD <value>: set the house's food stock.
+    if(cmd == "SET_FOOD" && tokens.size() >= 2) {
+        int32_t value = 0;
+        std::from_chars(tokens[1].data(), tokens[1].data() + tokens[1].size(), value);
+        int32_t *money = house_money();
+        if(money == nullptr) {
+            w.begin_object().kv("ok", false).kv("error", std::string_view("HouseInventory not loaded")).end_object();
+            return w.str();
+        }
+        if(value < 0) {
+            w.begin_object().kv("ok", false).kv("error", std::string_view("food must be >= 0")).end_object();
+            return w.str();
+        }
+        int32_t previous = money[0];
+        money[0] = value;
+        w.begin_object().kv("ok", true).kv("previous", previous).kv("food", money[0]).end_object();
         return w.str();
     }
 

@@ -542,6 +542,32 @@ def suggest_room_setup(room: str, goal: str = "breeding") -> dict:
     return dict(rooms_mod.suggest_setup(list(rooms.values()), room, goal), ok=True)
 
 
+# ---------------------------------------------------------------- house
+
+@mcp.tool()
+def get_house_status() -> dict:
+    """The in-game day, the house's food and gold, and how long the food
+    lasts: every house cat eats 1 food per night (observed: 97 -> 78 with
+    19 cats)."""
+    resp = send_command("DAY")
+    if not resp.get("ok"):
+        return resp
+    cats = send_command("LIST_CATS")
+    n = sum(1 for c in cats.get("cats", []) if c.get("in_house")) if cats.get("ok") else None
+    out = dict(resp, house_cats=n)
+    if n and resp.get("food") is not None:
+        out["nights_of_food"] = resp["food"] // n
+    return out
+
+
+@mcp.tool()
+def set_house_food(value: int) -> dict:
+    """Set the house's food stock (a live write: ask the player first and
+    suggest saving). The response's `previous` is the old value, to undo
+    it. Persistence through the game's save is not verified yet."""
+    return send_command(f"SET_FOOD {int(value)}")
+
+
 # ---------------------------------------------------------------- birth log
 
 def birth_log_snapshot():

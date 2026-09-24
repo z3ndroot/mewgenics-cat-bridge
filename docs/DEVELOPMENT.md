@@ -81,10 +81,10 @@ docs/                   this file
 
 ## Pipe commands (DLL)
 
-Read: `LIST_CATS`, `GET_CAT <key>`, `PEDIGREE`, `ROOMS`, `DAY` (LIST_CATS and
-PEDIGREE also carry `day`).
+Read: `LIST_CATS`, `GET_CAT <key>`, `PEDIGREE`, `ROOMS`, `DAY` (day, food,
+gold; LIST_CATS and PEDIGREE also carry `day`).
 Write: `SET_STAT <key> <stat> <value>`, `SET_HP <key> <value>`,
-`SET_PART <key> <part> <sprite_idx>`,
+`SET_PART <key> <part> <sprite_idx>`, `SET_FOOD <value>`,
 `SET_PASSIVE <key> <passive1|passive2|disorder1|disorder2> <name> <level>`.
 Debug: `DUMP_CAT <key>`, `CAT_SOURCES`, `COMPONENT_TYPES [addr]`,
 `DUMP_COMPONENT <key> <Type> [hexlen]` / `<n> #<Type>` / `<addr> @`.
@@ -270,6 +270,16 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   breeding loop reads [MewDirector singleton (RVA 0x13dac30) + 0x580] (day 0
   forces mating). Live value 97 = `current_day` 97 in a copy of the save.
   Goes up by one per in-game night (97 -> 98 observed live, 2026-09-25).
+* House food / gold (2026-09-25): int32 at HouseInventory + 0xb0 / + 0xb4
+  (save properties house_food / house_gold). Found in Mewgenics.exe: the
+  house loader (~RVA 0x2067dd, where the compiler copies "house_food" with
+  movsd) calls the property getter 0x22c5e0 (default 25) and stores the
+  result at [obj + 0xb0], the next property at [obj + 0xb4]; the saver
+  (~0x2060ba) reads them back from there. Checked live: gold 33 = save;
+  food 97 (save) -> 78 after one night with 19 house cats, i.e. 1 food per
+  cat per night. `SET_FOOD` (MCP `set_house_food`) set 78 -> 600 live;
+  whether it survives save/reload and shows in the UI: to check.
+  MCP `get_house_status` reports day, food, gold and nights of food left.
 * Birth log (`mcp_server/birth_log.py`, MCP `birth_log_report`, standalone
   `tools/birth_logger.py`): polls PEDIGREE + LIST_CATS + ROOMS every 20 s
   and writes one JSONL record per night to

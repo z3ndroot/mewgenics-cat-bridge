@@ -25,6 +25,7 @@ A small mod DLL reads the game's memory live and a Python [MCP](https://modelcon
 | Cats | `list_cats`, `get_cat` | Stats exactly as shown in-game, split into base (heritable) and bonus parts (class, items, passives, mutations, injuries); abilities and passives with in-game names (English and Russian); mutations; room; the daily stray |
 | Family | `get_family` | Parents, ancestors, siblings, children and inbreeding coefficient for every cat the save has ever had |
 | Breeding | `evaluate_pair`, `suggest_breeding_pairs`, `plan_breeding` | Kinship / kitten COI, sex and orientation compatibility, which stats, mutations and abilities a kitten can inherit and how likely, multi-generation plans |
+| Household | `get_house_status`, `set_house_food` | Current day, food and gold, how many nights the food lasts; set the food stock |
 | Birth log | `birth_log_report` | Records every in-game night in the background (who lived where, room stats, predicted mating chances, kittens born) and checks the breeding hypotheses against real births |
 | Strays & roles | `evaluate_strays`, `breeding_roles` | Whether to adopt the stray waiting outside; which cats the bloodline needs and which are free to risk |
 | Adventures | `suggest_adventure_team` | A party of cats not needed for breeding, with a class (collar) for each |
