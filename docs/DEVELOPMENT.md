@@ -233,6 +233,36 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   breeding.orientation and inbreeding_level now use these thresholds
   (the old 0.5 gay cut-off was a guess). Whether bi cats breed with
   anyone, and what libido/aggression actually do, is unverified.
+* Mating (2026-09-25), read from Mewgenics.exe 1.1.21239 code, NOT yet
+  checked against observed births (full .text linear sweep with capstone,
+  then refs to the CatData offsets):
+  - 0xd2850 attraction(A, B) = 0 if same cat, if 0xd3130(B) or bit 21 of
+    either cat's flags (+0xbf8) is set (meaning unknown); else
+    libido_A * orient * CHA_B * 0.15 * lover. orient: sincos of
+    sexuality_A * pi/2 (0xda7bf0): cos towards the other sex, sin towards
+    the same sex, 1 (the vector length) if either cat is sex 2 "?"
+    (straight cats breed with the other sex, so cos must be the other-sex
+    term). CHA_B = int at +0x14 of the stat block returned by 0xc1820
+    (CatStats order -> cha; which total -- base or displayed -- not
+    checked). lover: if A has a lover (+0xbc8), * (1 + affinity +0xbd0)
+    when B is the lover, else * (1 - affinity).
+  - 0xd2ab0 roll(A, B, f): p = attraction * f, false if <= 0, true if >= 1,
+    else random. The nightly breeding loop (~0x1e9b44) picks a partner B
+    for A (0x1f21a0, not decoded) and needs roll(A,B) AND roll(B,A) with
+    f = sqrt(room +0x120).
+  - room +0x120 (0x2ea8c0) = 1 - 0.1 * max(0, cats - 4) + 0.1 * each
+    furniture "Comfort" (effect case 0x1c in 0x1b4930) = 1 + 0.1 * displayed
+    Comfort. Negative -> sqrt NaN -> no breeding.
+  - 0x1ea05f litter: p = fertility_A * fertility_B (+0xbf0); one kitten
+    with chance p, a second with chance p - 1. Same-sex pair (neither "?")
+    -> 0 kittens.
+  - 0xd29e0 fight score(A, B) = (aggression_A + hate + 0.25 if flags bit 2)
+    * (1 - 2.667 * attraction(A, B)); hate = +hater_affinity if B is A's
+    hated cat, else -hater_affinity. Used by the partner/fight picker; the
+    step from score to an actual fight isn't decoded.
+  breeding.attraction / mating_outlook / fight_tendency implement this;
+  evaluate_pair returns `mating`, suggest_breeding_pairs skips pairs under
+  min_mating_chance. To verify: log nightly births per pair vs predicted.
 * Debug: `COMPONENT_TYPES [decimal addr]` lists component types per scene
   (and which one is at addr).
 * Debug: `DUMP_COMPONENT <sql_key> <TypeName> [hexlen]` hex-dumps a

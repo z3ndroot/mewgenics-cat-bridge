@@ -18,10 +18,14 @@ From the game's tips / a community guide, not verified by us:
   pass mutations/abilities more often; furniture effects can bias it too.
 * Gay cats only breed with "?" cats. Which cats are gay is the game's own
   rule for its UI icon (sexuality > 0.9; < 0.1 straight, else bi -- read
-  from Mewgenics.exe, see game_data.orientation_label). Bi cats are assumed
-  to breed like straight ones (unverified; none seen in the test saves).
+  from Mewgenics.exe, see game_data.orientation_label). In the game's
+  mating code orientation is continuous: interest in the other sex scales
+  with cos(sexuality*pi/2), so bi cats breed with the other sex, just less
+  eagerly; same-sex pairs (neither "?") never produce kittens.
 * Inbreeding raises the chance of birth defects / bad mutations / disorders.
 """
+
+import math
 
 from game_data import ABILITY_INHERITANCE_OBSERVED, inbreeding_tier, orientation_label
 
@@ -165,28 +169,81 @@ def _generations(base, g):
 
 
 def inbreeding_level(coi):
-    """The game's label for this COI (as on the cat info tab), plus a rough
-    risk note (the risk wording and its thresholds are ours)."""
+    """The game's label for this COI (as on the cat info tab) and the
+    birth-defect chance from the hypothesis model."""
     tier, (en, ru) = inbreeding_tier(coi)
-    return f"{ru} / {en} (game tier {tier}/4); {_inbreeding_risk(coi)}"
-
-
-def _inbreeding_risk(coi):
-    if coi <= 0:
-        return "none"
-    if coi <= 0.07:
-        return "low (cousin level) - generally safe"
-    if coi < 0.2:
-        return "elevated (half-sibling level) - some risk of defects"
-    if coi < 0.35:
-        return "moderate (sibling / parent-child level) - birth defects and bad mutations more likely"
-    return "high (repeated inbreeding) - severe defects, stat penalties likely"
+    return (f"{ru} / {en} (game tier {tier}/4); birth defect chance "
+            f"~{birth_defect_chance(coi):.0%} (hypothesis)")
 
 
 # ---------------------------------------------------------------- pairs
 
 def orientation(cat):
     return orientation_label(cat.get("sexuality", 0.0))
+
+
+# ---------------------------------------------------------------- mating
+# Read from Mewgenics.exe 1.1.21239 (see docs/DEVELOPMENT.md, "Mating"):
+# attraction(A->B) = libido_A * orient * CHA_B * 0.15 * lover, where orient
+# is cos(sexuality*pi/2) towards the other sex, sin(...) towards the same
+# sex, 1 if either cat is "?"; lover = 1 + affinity if B is A's lover,
+# 1 - affinity if A loves someone else. Each night a cat approaches a
+# partner and BOTH must agree: A with chance attraction(A->B) * sqrt(M),
+# B likewise, where M = 1 + 0.1 * room Comfort (as displayed, crowding
+# included). Kittens: p = fertility_A * fertility_B; one kitten with chance
+# p, a second with chance p - 1.
+ATTRACTION_SCALE = 0.15
+
+
+def attraction(a, b):
+    """How much cat a wants cat b (the game's formula; CHA_B is taken as
+    b's displayed charisma -- which charisma total the game uses is
+    unverified)."""
+    th = a.get("sexuality", 0.0) * math.pi / 2
+    if a["sex"] == 2 or b["sex"] == 2:
+        orient = 1.0
+    elif a["sex"] != b["sex"]:
+        orient = math.cos(th)
+    else:
+        orient = math.sin(th)
+    lover = 1.0
+    if a.get("lover_sql_key", -1) not in (-1, None):
+        aff = a.get("lover_affinity", 0.0)
+        lover = 1 + aff if a["lover_sql_key"] == b["sql_key"] else 1 - aff
+    cha = (b.get("stats") or b.get("stats_base") or {}).get("cha", 0)
+    return a.get("libido", 0.0) * orient * cha * ATTRACTION_SCALE * lover
+
+
+def fight_tendency(a, b):
+    """The game's score for a picking a fight with b: (aggression + hate
+    term + 0.25 if flag bit 2) * (1 - 2.67 * attraction). Relative score;
+    how it turns into an actual fight chance is not decoded yet."""
+    hate = 0.0
+    if a.get("hater_sql_key", -1) not in (-1, None):
+        aff = a.get("hater_affinity", 0.0)
+        hate = aff if a["hater_sql_key"] == b["sql_key"] else -aff
+    bonus = 0.25 if int(a.get("flags", 0)) & 4 else 0.0
+    return (a.get("aggression", 0.0) + hate + bonus) * (1 - attraction(a, b) * 8 / 3)
+
+
+def mating_outlook(a, b, comfort):
+    """Per-attempt chance that a and b agree to mate in a room with this
+    Comfort, and the expected litter."""
+    m = 1 + 0.1 * comfort
+    root = math.sqrt(m) if m > 0 else 0.0
+    ab, ba = attraction(a, b), attraction(b, a)
+    pa, pb = (min(max(x * root, 0.0), 1.0) for x in (ab, ba))
+    p = a.get("fertility", 1.0) * b.get("fertility", 1.0)
+    return {
+        "comfort_assumed": comfort,
+        "attraction": {a["name"]: round(ab, 3), b["name"]: round(ba, 3)},
+        "chance_both_agree": round(pa * pb, 3),
+        "expected_kittens_per_mating": round(min(max(p, 0.0), 1.0) + min(max(p - 1, 0.0), 1.0), 2),
+        "twins_chance": round(min(max(p - 1, 0.0), 1.0), 2),
+        "fight_tendency": {a["name"]: round(fight_tendency(a, b), 3), b["name"]: round(fight_tendency(b, a), 3)},
+        "note": "formulas read from the game's code; charisma = displayed total (unverified which total), "
+                "how often cats pick each other as partners is not decoded",
+    }
 
 
 def sire_dam(cat_x, cat_y):
@@ -310,6 +367,14 @@ def evaluate_pair(ped, cat_x, cat_y, rooms_by_name=None, stimulation=None):
                      "stimulation": r["displayed"].get("Stimulation", 0.0), "cats": len(r["cats"])}
         if room_info["comfort"] <= 0:
             warnings.append(f"room comfort {room_info['comfort']:g}: breeding unlikely, fights likely")
+    comfort = room_info["comfort"] if room_info else _best_comfort(rooms_by_name)
+    mating = mating_outlook(cat_x, cat_y, comfort)
+    if roles is not None and mating["chance_both_agree"] < 0.05:
+        warnings.append(f"they rarely agree to mate ({mating['chance_both_agree']:.0%} per attempt): "
+                        "low libido / charisma, orientation or a lover elsewhere")
+    for c, other in ((cat_x, cat_y), (cat_y, cat_x)):
+        if c.get("temperament", {}).get("aggression", {}).get("level") == "high":
+            warnings.append(f"{c['name']} has high aggression (picks fights with roommates)")
     muts = kitten_mutations(cat_x, cat_y)
     p_best = chance_of_best_kitten(stats)
     return {
@@ -334,6 +399,7 @@ def evaluate_pair(ped, cat_x, cat_y, rooms_by_name=None, stimulation=None):
         "kitten_active_ability": kitten_ability_outlook(cat_x, cat_y),
         "lovers": cat_x.get("lover_sql_key") == ky or cat_y.get("lover_sql_key") == kx,
         "room": room_info,
+        "mating": mating,
         "warnings": warnings,
     }
 
@@ -347,6 +413,12 @@ def best_room_stimulation(rooms_by_name):
         return 0.0, None
     name, room = max(rooms_by_name.items(), key=lambda kv: kv[1]["displayed"].get("Stimulation", 0.0))
     return room["displayed"].get("Stimulation", 0.0), name
+
+
+def _best_comfort(rooms_by_name):
+    if not rooms_by_name:
+        return 0.0
+    return max(r["displayed"].get("Comfort", 0.0) for r in rooms_by_name.values())
 
 
 def _pair_stimulation(cat_x, cat_y, rooms_by_name):
@@ -369,7 +441,7 @@ def mutation_value(cat, weights):
 
 
 def suggest_pairs(ped, cats, stat_weights=None, max_kitten_coi=0.0625, top=10, include_impossible=False,
-                  rooms_by_name=None, stimulation=None):
+                  rooms_by_name=None, stimulation=None, min_mating_chance=0.0):
     """Ranked by the EXPECTED kitten at the pair's Stimulation (see
     evaluate_pair), then by the best case."""
     weights = _weights(stat_weights)
@@ -382,6 +454,11 @@ def suggest_pairs(ped, cats, stat_weights=None, max_kitten_coi=0.0625, top=10, i
             kin = ped.kinship(x["sql_key"], y["sql_key"])
             if kin > max_kitten_coi:
                 continue
+            if not include_impossible and min_mating_chance > 0:
+                room = rooms_by_name.get(x.get("room")) if rooms_by_name and x.get("room") == y.get("room") else None
+                comfort = room["displayed"].get("Comfort", 0.0) if room else _best_comfort(rooms_by_name)
+                if mating_outlook(x, y, comfort)["chance_both_agree"] < min_mating_chance:
+                    continue
             stim = stimulation if stimulation is not None else _pair_stimulation(x, y, rooms_by_name)[0]
             rng = kitten_stat_range(x, y, stim)
             best = sum(weights[s] * rng[s]["max"] for s in STAT_NAMES)
