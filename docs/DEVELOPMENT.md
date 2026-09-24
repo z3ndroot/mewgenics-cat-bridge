@@ -76,7 +76,7 @@ tools/
   gpak.py                 list / extract files from resources.gpak
   package_release.py      build the release zip
 
-docs/                   this file, BREEDING_RESEARCH.md
+docs/                   this file
 ```
 
 ## Pipe commands (DLL)
@@ -165,7 +165,7 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   stats), `evaluate_strays` (adopt today's stray?). The stray waiting
   outside is part of the breeding pool in pairs/plan tools.
   Unlocked advanced classes aren't read yet (default = 6 base classes).
-* `BREEDING_RESEARCH.md` (model from jph6366/mewgenics-mcp, save-file
+* Breeding model from https://github.com/jph6366/mewgenics-mcp (save-file
   based) checked against our data on 2026-09-25:
   - its COI formula `0.5*(F1+F2) + kinship` is WRONG: the game's COI is
     exactly kinship(sire, dam) (our breeding.py, verified on 256 cats).
@@ -299,8 +299,7 @@ SQLite) is used for validation only; the tool reads live memory.
   yet (the fields are in `types/glaiel_cat.hpp`; `SET_PASSIVE` shows how
   to write an MSVC string safely).
 * Not read yet: unlocked advanced classes, furniture in storage.
-* Breeding probabilities by Stimulation are a hypothesis (see
-  `BREEDING_RESEARCH.md`); ability inheritance odds were measured on one
+* Breeding probabilities by Stimulation are a hypothesis (from https://github.com/jph6366/mewgenics-mcp); ability inheritance odds were measured on one
   save.
 
 ## Alternative approach that was considered and NOT used

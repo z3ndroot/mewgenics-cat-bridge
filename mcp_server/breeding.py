@@ -28,7 +28,7 @@ SEX_NAMES = {0: "male", 1: "female", 2: "either (?)"}
 GAY_SEXUALITY = 0.5
 MAX_BASE_STAT = 7
 
-# HYPOTHESIS (from jph6366/mewgenics-mcp, see docs/BREEDING_RESEARCH.md; not
+# HYPOTHESIS (from https://github.com/jph6366/mewgenics-mcp; not
 # verified against the game): chance that a kitten takes the BETTER
 # parent's value, per stat, by Stimulation. Consistent with what we've
 # seen at Stimulation 13 (kittens got the lower value about half the time).
