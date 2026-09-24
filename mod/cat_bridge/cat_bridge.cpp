@@ -47,6 +47,18 @@ MAKE_SDPORTAL(DATAOFF_glaiel__MewDirector__p_singleton,
     MewDirector *, get_p_mewdirector_singleton
 )
 
+// The in-game day counter (save property "current_day"): an int64 at
+// MewDirector + 0x580. Found in Mewgenics.exe 1.1.21239: the save loader
+// (~RVA 0x3a6dda) stores current_day there, and the breeding code reads the
+// same global (RVA 0x13dac30 = the MewDirector singleton). -1 if unloaded.
+int64_t current_day() {
+    MewDirector *p_mewdirector = get_p_mewdirector_singleton();
+    if(p_mewdirector == nullptr) {
+        return -1;
+    }
+    return *reinterpret_cast<const int64_t *>(reinterpret_cast<const uint8_t *>(p_mewdirector) + 0x580);
+}
+
 std::string get_type_name(Component *component) {
     MsvcReleaseModeXString type_name = {};
     component->vtable->GetObjectTypeSTR(component, &type_name);
@@ -324,10 +336,16 @@ std::string handle_request(std::string_view line) {
 
     std::string_view cmd = tokens[0];
 
+    if(cmd == "DAY") {
+        w.begin_object().kv("ok", true).kv("day", current_day()).end_object();
+        return w.str();
+    }
+
     if(cmd == "LIST_CATS") {
         auto cats = collect_all_cats();
         w.begin_object();
         w.kv("ok", true);
+        w.kv("day", current_day());
         w.key("cats");
         w.begin_array();
         for(auto &[sql_key, found] : cats) {
@@ -556,6 +574,7 @@ std::string handle_request(std::string_view line) {
         }
         w.begin_object();
         w.kv("ok", true);
+        w.kv("day", current_day());
         w.key("pedigree");
         w.begin_array();
         table.for_each([&](const PedigreeEntry &e) {

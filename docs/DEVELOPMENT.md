@@ -81,7 +81,8 @@ docs/                   this file
 
 ## Pipe commands (DLL)
 
-Read: `LIST_CATS`, `GET_CAT <key>`, `PEDIGREE`, `ROOMS`.
+Read: `LIST_CATS`, `GET_CAT <key>`, `PEDIGREE`, `ROOMS`, `DAY` (LIST_CATS and
+PEDIGREE also carry `day`).
 Write: `SET_STAT <key> <stat> <value>`, `SET_HP <key> <value>`,
 `SET_PART <key> <part> <sprite_idx>`,
 `SET_PASSIVE <key> <passive1|passive2|disorder1|disorder2> <name> <level>`.
@@ -263,6 +264,27 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   breeding.attraction / mating_outlook / fight_tendency implement this;
   evaluate_pair returns `mating`, suggest_breeding_pairs skips pairs under
   min_mating_chance. To verify: log nightly births per pair vs predicted.
+* Day counter (2026-09-25): the save property `current_day` lives at
+  MewDirector + 0x580 (int64). Found in Mewgenics.exe: the save loader
+  (~RVA 0x3a6db9) reads "current_day" and stores it at [r12 + 0x580]; the
+  breeding loop reads [MewDirector singleton (RVA 0x13dac30) + 0x580] (day 0
+  forces mating). Live value 97 = `current_day` 97 in a copy of the save.
+  Still to confirm: it goes up by one per in-game night.
+* Birth log (`mcp_server/birth_log.py`, MCP `birth_log_report`, standalone
+  `tools/birth_logger.py`): polls PEDIGREE + LIST_CATS + ROOMS every 20 s
+  and writes one JSONL record per night to
+  %LOCALAPPDATA%\mewgenics-cat-bridgeirth_log.jsonl (MEWGENICS_BIRTH_LOG
+  = path or "off"). The pre-night state is the last snapshot before any new
+  kitten (with parents) appeared; a night is closed one poll after the day
+  changes, so it works whichever the game does first. Records: rooms
+  (Comfort, Stimulation, cats), compact cats, every co-housed pair with the
+  predicted mating chance, births (parents, parents' room, kitten stats /
+  body parts / innate). Nights where the day jumped by more than one are
+  marked `gap`. Save slots are told apart by a hash of the oldest pedigree
+  rows. `send_command` now serializes requests (lock) and retries while the
+  pipe is busy / between instances (errors 2, 231).
+* `tools/cat_bridge_dev.py eject` reads the shutdown export from the DLL
+  file that is actually loaded (it may come from another checkout).
 * Debug: `COMPONENT_TYPES [decimal addr]` lists component types per scene
   (and which one is at addr).
 * Debug: `DUMP_COMPONENT <sql_key> <TypeName> [hexlen]` hex-dumps a

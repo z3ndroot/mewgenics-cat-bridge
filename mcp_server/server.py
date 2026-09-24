@@ -21,7 +21,10 @@ Run (only makes sense on Windows, with Mewgenics + the mod actually running):
 """
 
 import json
+import os
 import sys
+import threading
+import time
 
 import win32file
 import win32pipe
@@ -30,6 +33,7 @@ import pywintypes
 from mcp.server.fastmcp import FastMCP
 
 import advisor
+import birth_log
 import breeding
 import rooms as rooms_mod
 from game_data import (EFFECT_NOTES, MUTATION_SLOTS, STAT_NAMES, enrich_cat, furniture_effects,
@@ -37,28 +41,44 @@ from game_data import (EFFECT_NOTES, MUTATION_SLOTS, STAT_NAMES, enrich_cat, fur
 
 PIPE_NAME = r"\\.\pipe\cat_bridge"
 PIPE_TIMEOUT_MS = 5000
+# The mod serves one client at a time and re-creates the pipe after each
+# response: serialize our own requests (tools + the birth-log poller) and
+# retry briefly while the pipe is busy or between instances.
+_PIPE_LOCK = threading.Lock()
+_PIPE_RETRY_ERRORS = (2, 231)  # ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY
+_PIPE_RETRIES = 10
 
 mcp = FastMCP("mewgenics-cat-bridge")
 
 
 def send_command(command: str) -> dict:
     """Open the named pipe, send one command line, read one JSON response line, close."""
-    try:
-        handle = win32file.CreateFile(
-            PIPE_NAME,
-            win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-            0,
-            None,
-            win32file.OPEN_EXISTING,
-            0,
-            None,
-        )
-    except pywintypes.error as e:
-        return {
-            "ok": False,
-            "error": f"could not connect to {PIPE_NAME}: {e}. "
-                     f"Is Mewgenics running with cat_bridge.dll loaded?",
-        }
+    with _PIPE_LOCK:
+        return _send_command_locked(command)
+
+
+def _send_command_locked(command):
+    for attempt in range(_PIPE_RETRIES):
+        try:
+            handle = win32file.CreateFile(
+                PIPE_NAME,
+                win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                0,
+                None,
+                win32file.OPEN_EXISTING,
+                0,
+                None,
+            )
+            break
+        except pywintypes.error as e:
+            if e.winerror in _PIPE_RETRY_ERRORS and attempt < _PIPE_RETRIES - 1:
+                time.sleep(0.05)
+                continue
+            return {
+                "ok": False,
+                "error": f"could not connect to {PIPE_NAME}: {e}. "
+                         f"Is Mewgenics running with cat_bridge.dll loaded?",
+            }
 
     try:
         win32pipe.SetNamedPipeHandleState(handle, win32pipe.PIPE_READMODE_BYTE, None, None)
@@ -522,5 +542,61 @@ def suggest_room_setup(room: str, goal: str = "breeding") -> dict:
     return dict(rooms_mod.suggest_setup(list(rooms.values()), room, goal), ok=True)
 
 
+# ---------------------------------------------------------------- birth log
+
+def birth_log_snapshot():
+    """One snapshot for the birth log, or None if the game isn't reachable."""
+    ped = send_command("PEDIGREE")
+    if not ped.get("ok"):
+        return None
+    cats = send_cat_command("LIST_CATS")
+    if not cats.get("ok"):
+        return None
+    rooms, err = _load_rooms()
+    if err:
+        return None
+    return birth_log.Snapshot(cats.get("day"), ped["pedigree"], cats["cats"], rooms)
+
+
+BIRTH_LOGGER = birth_log.BirthLogger()
+
+
+@mcp.tool()
+def birth_log_report(show_last_nights: int = 0) -> dict:
+    """Check the breeding hypotheses against real births. While this server
+    runs (and the game is on the house screen) a background logger records
+    every night: who lived in which room, room Comfort/Stimulation, the
+    predicted mating chance of every co-housed pair, and which kittens were
+    born (parents, base stats, body parts, innate ability).
+
+    Returns the logger status and an analysis of everything logged so far:
+    stimulation_check -- per room-Stimulation tier, how often a kitten took
+    the better parent's base stat (stats where the parents differ) vs the
+    hypothesis (0.5 / 0.55 from 32 / 0.7 from 95 / 1.0 from 196);
+    mating_check -- co-housed compatible pairs binned by the predicted
+    per-attempt chance (evaluate_pair's `mating`) vs how often they really
+    had kittens that night; litters -- kittens per mating vs the fertility
+    prediction. Needs many nights before the numbers mean anything.
+    show_last_nights: also return that many recent nights in short form."""
+    records = birth_log.read_log(BIRTH_LOGGER.path)
+    out = {"ok": True, "status": BIRTH_LOGGER.status(), "analysis": birth_log.analyze(records)}
+    if show_last_nights > 0:
+        out["recent_nights"] = [
+            {"day": r["day_after"], "gap": r.get("gap", False),
+             "births": [{"kitten": b["kitten"], "name": (b.get("kitten_cat") or {}).get("name"),
+                         "sire": b["sire"], "dam": b["dam"], "room": b["parents_room"]} for b in r["births"]],
+             "rooms": {n: {k: v for k, v in room.items() if k != "cats"} | {"cats": len(room["cats"])}
+                       for n, room in r["rooms"].items()}}
+            for r in records[-show_last_nights:] if r.get("type") == "night"]
+    return out
+
+
+def start_birth_log():
+    if os.environ.get("MEWGENICS_BIRTH_LOG", "").lower() == "off":
+        return None
+    return birth_log.start_background(birth_log_snapshot, BIRTH_LOGGER)
+
+
 if __name__ == "__main__":
+    start_birth_log()
     mcp.run(transport="stdio")
