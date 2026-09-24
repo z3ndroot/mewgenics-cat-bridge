@@ -570,6 +570,21 @@ def set_house_food(value: int) -> dict:
     return send_command(f"SET_FOOD {int(value)}")
 
 
+@mcp.tool()
+def set_furniture_effect(furniture_type: str, effect: str, value: float) -> dict:
+    """For experiments: change a number in the game's loaded furniture data
+    (data/furniture_effects.gon), e.g. ("object_electronics_monitor",
+    "Stimulation", 188). Every room with that furniture recomputes its
+    totals at once (get_rooms shows it). Lasts until the game restarts --
+    the file on disk isn't touched; the response's `previous` undoes it.
+    Only effects the furniture already has can be changed. A live write:
+    ask the player first. Pick a furniture type that is only in the room
+    you want to change (get_rooms lists furniture per room)."""
+    if " " in furniture_type or " " in effect:
+        return {"ok": False, "error": "furniture_type and effect are keys without spaces"}
+    return send_command(f"SET_FURNITURE_EFFECT {furniture_type} {effect} {value}")
+
+
 # ---------------------------------------------------------------- birth log
 
 def birth_log_snapshot():

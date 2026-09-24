@@ -85,6 +85,8 @@ Read: `LIST_CATS`, `GET_CAT <key>`, `PEDIGREE`, `ROOMS`, `DAY` (day, food,
 gold; LIST_CATS and PEDIGREE also carry `day`).
 Write: `SET_STAT <key> <stat> <value>`, `SET_HP <key> <value>`,
 `SET_PART <key> <part> <sprite_idx>`, `SET_FOOD <value>`,
+`SET_FURNITURE_EFFECT <type> <effect> <value>`, `SET_ROOM_EFFECT <room> <effect> <value>`
+(the latter is useless: see below),
 `SET_PASSIVE <key> <passive1|passive2|disorder1|disorder2> <name> <level>`.
 Debug: `DUMP_CAT <key>`, `CAT_SOURCES`, `COMPONENT_TYPES [addr]`,
 `DUMP_COMPONENT <key> <Type> [hexlen]` / `<n> #<Type>` / `<addr> @`.
@@ -270,6 +272,19 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   breeding loop reads [MewDirector singleton (RVA 0x13dac30) + 0x580] (day 0
   forces mating). Live value 97 = `current_day` 97 in a copy of the save.
   Goes up by one per in-game night (97 -> 98 observed live, 2026-09-25).
+* Room effect totals (FurnitureGrid + 0x140) are recomputed from the
+  furniture continuously: `SET_ROOM_EFFECT` changed Floor1_Small
+  Stimulation 13 -> 200 and the next read was 13 again. They are computed
+  from data/furniture_effects.gon as loaded in memory: a GON tree at
+  SpawnDatabase + 0xd48 (loader ~RVA 0x7a79cb copies it there). GON node
+  layout in `types/glaiel_house.hpp` (GonObject, 0xb0 bytes: children
+  vector +0x38, int +0x50, double +0x58, text +0x68, key +0x88, type +0xa8;
+  found by scanning the process for the monitor's name/desc strings).
+  `SET_FURNITURE_EFFECT object_electronics_monitor Stimulation 188` (the
+  only monitor is in Floor1_Small) -> the room showed Stimulation 200 right
+  away and kept it. The breeding code reads the same totals (Comfort via
+  the room's effect list, 0x2ea8c0), so this is how experiments get high
+  Stimulation. Lasts until the game restarts.
 * Birth-log results, days 97-111 (14 nights, 49 kittens, one save;
   rooms of 9 / 9 / 2 cats, Comfort 3 / 3 / 8, Stimulation 13 / 4 / 0):
   - Litter size CONFIRMED: 42 matings, mean 1.17 kittens vs 1.20 predicted
