@@ -270,6 +270,22 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   breeding loop reads [MewDirector singleton (RVA 0x13dac30) + 0x580] (day 0
   forces mating). Live value 97 = `current_day` 97 in a copy of the save.
   Goes up by one per in-game night (97 -> 98 observed live, 2026-09-25).
+* Birth-log results, days 97-111 (14 nights, 49 kittens, one save;
+  rooms of 9 / 9 / 2 cats, Comfort 3 / 3 / 8, Stimulation 13 / 4 / 0):
+  - Litter size CONFIRMED: 42 matings, mean 1.17 kittens vs 1.20 predicted
+    by p = fertility_A * fertility_B (one kitten w.p. p, twins w.p. p - 1).
+  - Isolated pair (only two cats in the attic): a pair with per-attempt
+    chance 0.56-0.83 bred 5 of 5 nights; a pair with 0.10-0.12 bred 3 of 7
+    nights. Both fit "each of the two cats makes one attempt per night":
+    P(night) = 1 - (1 - q)^2 = 0.81-0.97 and ~0.21 (3 of 7 is a bit high,
+    P(>=3) ~ 0.17). Consistent with the model; not yet a precise check.
+  - Shared rooms: pairs breed less often than q (e.g. q 0.2-0.3 -> 14% of
+    nights): each cat picks one partner per night (0x1f21a0, not decoded).
+  - Stimulation: kitten took the better parent's base stat in 98 of 171
+    stat comparisons (57%, z = 1.9 vs 50%); by room Stimulation 0 / 4 / 13:
+    71% (n 28) / 57% (n 61) / 52% (n 82) -- no upward trend, so nothing
+    speaks for Stimulation mattering below 32; the 32 / 95 / 196 tiers
+    remain untested (the house only has 17 Stimulation in total).
 * House food / gold (2026-09-25): int32 at HouseInventory + 0xb0 / + 0xb4
   (save properties house_food / house_gold). Found in Mewgenics.exe: the
   house loader (~RVA 0x2067dd, where the compiler copies "house_food" with
