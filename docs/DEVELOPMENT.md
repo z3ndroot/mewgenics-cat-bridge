@@ -277,8 +277,10 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   result at [obj + 0xb0], the next property at [obj + 0xb4]; the saver
   (~0x2060ba) reads them back from there. Checked live: gold 33 = save;
   food 97 (save) -> 78 after one night with 19 house cats, i.e. 1 food per
-  cat per night. `SET_FOOD` (MCP `set_house_food`) set 78 -> 600 live;
-  whether it survives save/reload and shows in the UI: to check.
+  cat per night. `SET_FOOD` (MCP `set_house_food`) set 78 -> 600 live: the
+  UI showed 140/140 (storage capacity; 40 of it from FoodStorage furniture)
+  and the night clamped it: 600 -> 140 - 20 cats = 120. So food above the
+  capacity is lost overnight; where the capacity lives isn't found yet.
   MCP `get_house_status` reports day, food, gold and nights of food left.
 * Birth log (`mcp_server/birth_log.py`, MCP `birth_log_report`, standalone
   `tools/birth_logger.py`): polls PEDIGREE + LIST_CATS + ROOMS every 20 s

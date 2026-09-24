@@ -564,7 +564,9 @@ def get_house_status() -> dict:
 def set_house_food(value: int) -> dict:
     """Set the house's food stock (a live write: ask the player first and
     suggest saving). The response's `previous` is the old value, to undo
-    it. Persistence through the game's save is not verified yet."""
+    it. The game clamps food to the storage capacity overnight (shown in
+    the UI as food/capacity, e.g. 140/140), so setting more than that is
+    wasted. Persistence through the game's save is not verified yet."""
     return send_command(f"SET_FOOD {int(value)}")
 
 
