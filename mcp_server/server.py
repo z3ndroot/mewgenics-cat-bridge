@@ -144,7 +144,8 @@ def set_cat_stat(sql_key: int, stat: str, value: int) -> dict:
 @mcp.tool()
 def set_cat_body_part(sql_key: int, part: str, sprite_index: int) -> dict:
     """Change one body part of a cat by sprite index -- this is how mutations
-    are added or removed. The change is visible in-game immediately.
+    are added or removed. The change is visible in-game immediately and
+    persists through the game's own save.
 
     part: texture, body, head, tail, mouth, leg1, leg2, arm1, arm2, lefteye,
     righteye, lefteyebrow, righteyebrow, leftear, rightear.
@@ -180,7 +181,8 @@ def find_mutations(query: str = "", slot: str | None = None, stat: str | None = 
 def add_cat_mutation(sql_key: int, slot: str, mutation_id: int, side: str = "both") -> dict:
     """Give a cat a body-part mutation (from find_mutations) by writing its
     id into the slot's body part(s) through set_cat_body_part; visible
-    in-game immediately. Replaces whatever the slot had.
+    in-game immediately and persists through the game's save. Replaces
+    whatever the slot had.
     slot: texture, body, head, tail, mouth, legs, arms, eyes, eyebrows,
     ears. side (paired slots only): both (default -- the bonus counts once
     per slot anyway, this just makes it look symmetric), left or right.
