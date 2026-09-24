@@ -1,0 +1,25 @@
+# build output
+mod/build/
+bin/
+dist/
+
+# the DLL copy the loader injects
+tools/.live/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# never commit save files or extracted game data
+*.sav
+*.savbackup
+*.gpak
+extracted/
+
+# editors / OS
+.vscode/
+.idea/
+.claude/
+Thumbs.db
