@@ -177,7 +177,8 @@ def set_cat_passive(sql_key: int, slot: str, passive_key: str, level: int = 1) -
     is the internal key from find_passives (or list_cats' passives[].key);
     "None" empties the slot. level must be one the passive defines (most
     class passives have 1 and 2). The response's `previous` /
-    `previous_level` let you undo it. Passives from another class usually
+    `previous_level` let you undo it. Persists through the game's own save.
+    Passives from another class usually
     still work, but this isn't something the game normally allows."""
     if slot not in PASSIVE_SLOTS:
         return {"ok": False, "error": f"slot must be one of {PASSIVE_SLOTS}"}
