@@ -208,7 +208,9 @@ Verified on Windows 11 against Mewgenics 1.1.21239 (Steam, SHA-256 matches
   their own (combined.csv only has per-slot names like MUTATION_EAR_NAME).
   `add_cat_mutation` writes the id into every part of the slot via
   `SET_PART` (both ears / both arms, or one side) and returns the old
-  indices. Tags seen: animal, common (the 400-449 block: +2/-1 stat
+  indices. Verified in-game 2026-09-25: ears 303 on both ears of a cat ->
+  new ears drawn, STR 6 -> 7 (once per slot, as predicted), knockback
+  effect shown in the cat's info (checked by the player). Tags seen: animal, common (the 400-449 block: +2/-1 stat
   pairs), bird, extra, melted, birth_defect (-2 and most of 700+).
   Mutations with only a `passives` block (e.g. Thorns) are assumed to take
   effect like stat ones, since the game keys everything by sprite index --
